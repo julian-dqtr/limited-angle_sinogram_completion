@@ -30,9 +30,9 @@ acquired window.
 ## Results
 
 Mean over the 200 test samples. The wedge is the set of missing views; the image PSNR is computed after filtered
-back-projection of the completed sinogram.
+back-projection of the completed sinogram. ↓ lower is better, ↑ higher is better.
 
-| Model | Wedge MSE | Wedge PSNR (dB) | Image PSNR (dB) | Wedge MSE with P4 |
+| Model | Wedge MSE ↓ | Wedge PSNR (dB) ↑ | Image PSNR (dB) ↑ | Wedge MSE with P4 ↓ |
 |---|---|---|---|---|
 | Zero filling | 2.71e-2 | 17.67 | 16.03 | |
 | Linear interpolation | 8.24e-3 | 22.66 | 15.95 | |
