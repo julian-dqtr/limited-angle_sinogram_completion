@@ -1,10 +1,10 @@
-"""HLCC moment regression (Huang et al. 2017) used as a post-processing, and the "_P<k>" model names."""
+"""HLCC moment regression (Huang et al. 2017) as a post-processing, and the "_P<k>" model names."""
 import pytest
 import torch
 
-from src_2D.models.factory import build_model, get_model, parse_full_model_name, parse_model_name, run_name_of
-from src_2D.utils.checkpoint import save_checkpoint
-from src_2D.utils.hlcc import HLCCMomentProjection, chebyshev_u, detector_coordinate
+from src.checkpoint import save_checkpoint
+from src.hlcc import HLCCMomentProjection, chebyshev_u, detector_coordinate
+from src.models.factory import build_model, get_model, parse_full_model_name, parse_model_name, run_name_of
 
 
 def _missing(geom) -> torch.Tensor:
@@ -27,21 +27,21 @@ def test_projected_views_get_exactly_the_regressed_moments(geom, clean_val_batch
 
 
 def test_gradients_flow_through_the_projection(geom, clean_val_batch):
-    """train.py --projection_order K trains through the regression: the loss on P_K(prediction) must reach the
-    prediction, except along what the regression imposes. Without the shadow mask that is exact: on a missing view,
-    the gradient has no component along the correction atoms (grad @ synthesis = 0, since moments(synthesis) = I)."""
+    """Training through P_K (train.py --projection_order K): the gradient reaches the prediction, except along
+    the correction atoms on the missing views (grad @ synthesis = 0 without the shadow mask)."""
     incomplete, full, _ = clean_val_batch
     noisy = full + 0.05 * torch.randn(full.shape, generator=torch.Generator().manual_seed(0))
-    for projection in (HLCCMomentProjection(geom, max_order=4), HLCCMomentProjection(geom, max_order=4, support_threshold=None)):
+    for threshold in (0.03, None):
+        projection = HLCCMomentProjection(geom, max_order=4, support_threshold=threshold)
         prediction = noisy.clone().requires_grad_(True)
         torch.nn.functional.mse_loss(projection(prediction, incomplete), full).backward()
         assert prediction.grad is not None and torch.isfinite(prediction.grad).all() and prediction.grad.abs().sum() > 0
     grad = prediction.grad.double()[:, :, _missing(geom)]
-    assert (grad @ projection.synthesis).abs().max() < 1e-5 * grad.abs().max()  # float32 input: rounding only
+    assert (grad @ projection.synthesis).abs().max() < 1e-5 * grad.abs().max()  # float32 rounding only
 
 
 def test_the_correction_stays_inside_the_shadow_of_the_object(geom, clean_val_batch):
-    """Default behaviour: where the completed view is (almost) zero, nothing is added."""
+    """By default nothing is added where the completed view is (almost) zero."""
     incomplete, full, _ = clean_val_batch
     missing = _missing(geom)
     prediction = (0.9 * full).clone()  # wrong mass, right support
@@ -56,30 +56,29 @@ def test_the_correction_stays_inside_the_shadow_of_the_object(geom, clean_val_ba
     def wedge_mse(sinogram):
         return ((sinogram - full)[:, :, missing] ** 2).mean().item()
 
-    assert wedge_mse(inside) < 0.2 * wedge_mse(prediction)  # the 10 % mass error is mostly repaired
+    assert wedge_mse(inside) < 0.2 * wedge_mse(prediction)  # the 10 % mass error is mostly fixed
 
 
 def test_an_error_made_of_low_order_atoms_is_removed(geom, clean_val_batch):
-    """Add c(theta) W(s) U_2(s) to the ground truth of the missing views: the regression of order >= 2
-    knows the true second moment from the acquired views and takes the error away."""
+    """An error c(theta) W(s) U_2(s) on the missing views is removed by the regression of order >= 2 only."""
     incomplete, full, _ = clean_val_batch
     x = detector_coordinate(geom)
     atom = (torch.sqrt(1 - x**2) * chebyshev_u(x, 2)[:, 2]).float()
     missing = _missing(geom)
     corrupted = full.clone()
-    corrupted[:, :, missing] += 0.2 * torch.cos(torch.as_tensor(geom.angles[missing.numpy()], dtype=torch.float32)).view(1, 1, -1, 1) * atom
+    angles = torch.as_tensor(geom.angles[missing.numpy()], dtype=torch.float32)
+    corrupted[:, :, missing] += 0.2 * torch.cos(angles).view(1, 1, -1, 1) * atom
 
     def wedge_mse(sinogram):
         return ((sinogram - full)[:, :, missing] ** 2).mean().item()
 
     before = wedge_mse(corrupted)
-    assert wedge_mse(HLCCMomentProjection(geom, 1, support_threshold=None)(corrupted, incomplete)) > 0.9 * before  # order too low
+    assert wedge_mse(HLCCMomentProjection(geom, 1, support_threshold=None)(corrupted, incomplete)) > 0.9 * before
     assert wedge_mse(HLCCMomentProjection(geom, 2, support_threshold=None)(corrupted, incomplete)) < 1e-2 * before
 
 
 def test_the_clean_ground_truth_is_almost_a_fixed_point(geom, clean_val_batch):
-    """With noise-free measurements, the regressed moments of orders <= 3 are the true ones up to the
-    discretisation error, so the projection must barely move the ground truth."""
+    """Without noise the regressed moments of orders <= 3 are the true ones, up to the discretisation error."""
     incomplete, full, _ = clean_val_batch
     missing = _missing(geom)
     projected = HLCCMomentProjection(geom, max_order=3, support_threshold=None)(full, incomplete)
@@ -120,5 +119,5 @@ def test_projected_models_from_the_factory(config, geom, clean_val_batch, device
     assert sum(p.numel() for p in projected.parameters()) == sum(p.numel() for p in reference.parameters())
     with torch.no_grad():
         out, raw = projected(incomplete), reference(incomplete)
-    assert torch.equal(out[:, :, acquired], incomplete[:, :, acquired])  # hard DC, untouched by the projection
+    assert torch.equal(out[:, :, acquired], incomplete[:, :, acquired])
     assert not torch.equal(out, raw)

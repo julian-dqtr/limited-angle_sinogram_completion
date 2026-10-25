@@ -1,26 +1,23 @@
-#!/usr/bin/env python3
 """Architecture figures of the learned models, drawn with PlotNeuralNet (LaTeX / TikZ).
 
-    python scripts/plot_architectures.py                      # every figure
-    python scripts/plot_architectures.py --model viewgraph    # one figure
-    python scripts/plot_architectures.py --no-compile         # only write the .tex
-    CUDA_VISIBLE_DEVICES=0 python scripts/plot_architectures.py --sinograms   # re-render the sinogram images first
+    python -m scripts.plot_architectures                      # every figure
+    python -m scripts.plot_architectures --model viewgraph    # one figure
+    python -m scripts.plot_architectures --no-compile         # only write the .tex
+    CUDA_VISIBLE_DEVICES=0 python -m scripts.plot_architectures --sinograms   # re-render the sinogram images first
 
-- arch_unet:         SinogramUNet. UNet2D and UNet2dHLCC share this exact network (only the loss differs).
-- arch_unet_hlcc_p4: UNet2dHLCC_P4, the U-Net trained with the HLCC penalty followed by the HLCC moment regression.
-- arch_viewgraph:    ViewGraphNet. SinoGCN and SinoSheafNet share it, only the fixed transport T_ij differs.
+- arch_unet: SinogramUNet, shared by UNet2D and UNet2dHLCC.
+- arch_unet_hlcc_p4: UNet2dHLCC followed by the HLCC moment regression P4.
+- arch_unet_ushape, arch_unet_hlcc_p4_ushape: the same two figures with the U-Net drawn as a U (larger).
+- arch_viewgraph: ViewGraphNet, shared by the GCN and the SNN (only the fixed transport differs).
 
-The U-Net figures show the real input / outputs of test sample --sample (PNGs in
-results/figures/architectures/sinograms/, rendered by --sinograms: needs ASTRA, a GPU and the checkpoints).
-Without these PNGs, plain boxes are drawn instead.
-
-Channel counts and tensor sizes are read from DEFAULT_MODEL_CONFIG and DBTGeometryConfig, so the
-figures follow the models. PlotNeuralNet is not vendored, clone it once:
+The U-Net figures show the input and outputs of test sample --sample, rendered by --sinograms into
+results/figures/architectures/sinograms/ (needs ASTRA, a GPU and the checkpoints); without them, plain boxes are
+drawn. Channel counts and sizes come from DEFAULT_MODEL_CONFIG and GeometryConfig. PlotNeuralNet is not vendored:
 
     git clone --depth 1 https://github.com/HarisIqbal88/PlotNeuralNet tools/PlotNeuralNet
 
-The .tex sources are written to results/figures/architectures/ and compiled with the first of
-tectonic / pdflatex found on the PATH (or --latex); the PDFs go to results/figures/.
+The .tex sources go to results/figures/architectures/ and are compiled with tectonic or pdflatex (--latex); the
+PDFs go to results/figures/.
 """
 import argparse
 import math
@@ -31,20 +28,17 @@ import sys
 from pathlib import Path
 from typing import List, Optional, Sequence, Tuple
 
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
-if str(PROJECT_ROOT) not in sys.path:
-    sys.path.insert(0, str(PROJECT_ROOT))
+from src.config import GeometryConfig
+from src.models.factory import DEFAULT_MODEL_CONFIG
+from src.paths import PROJECT_ROOT, RESULTS_DIR
 
-from src_2D.conf.geometry_conf_2d import DBTGeometryConfig
-from src_2D.models.factory import DEFAULT_MODEL_CONFIG
-
-PLOTNN_ROOT = PROJECT_ROOT / "tools/PlotNeuralNet"
-TEX_DIR = PROJECT_ROOT / "results/figures/architectures"
+PLOTNN_ROOT = PROJECT_ROOT / "tools" / "PlotNeuralNet"
+PDF_DIR = RESULTS_DIR / "figures"
+TEX_DIR = PDF_DIR / "architectures"
 SINO_DIR = TEX_DIR / "sinograms"
-PDF_DIR = PROJECT_ROOT / "results/figures"
 
 if not (PLOTNN_ROOT / "pycore/tikzeng.py").exists():
-    sys.exit(f"PlotNeuralNet not found in {PLOTNN_ROOT}, clone it first (see the docstring of this script).")
+    sys.exit(f"PlotNeuralNet not found in {PLOTNN_ROOT}: clone it first (see the docstring of this script).")
 sys.path.insert(0, str(PLOTNN_ROOT))
 from pycore.tikzeng import to_begin, to_connection, to_end, to_head, to_skip  # noqa: E402
 
@@ -64,17 +58,14 @@ COLORS = r"""
 \def\HLCCColor{rgb:green,3;blue,1;white,8}
 """
 
-# Path from the input to the residual / data-consistency nodes, drawn below the network; operators of the
-# 2D flowcharts.
+# "bus": path from the input to the residual / data-consistency nodes, below the network. "op": flowchart boxes.
 BUS_STYLE = r"""
 \tikzstyle{bus}=[ultra thick,-Stealth,draw={rgb:blue,4;red,1;green,1;black,3},opacity=0.7,rounded corners=4pt]
 \tikzstyle{op}=[draw=black!60,fill=\HLCCColor,rounded corners=3pt,align=flush center,font=\small,inner sep=4pt]
 """
 
 
-# ---------------------------------------------------------------------------
-# TikZ helpers (same pics as pycore.tikzeng, with free colours and labels)
-# ---------------------------------------------------------------------------
+# TikZ helpers: the pics of pycore.tikzeng, with free colours and labels.
 
 def labels(*values) -> str:
     """xlabel / width list of a PlotNeuralNet pic: {{"32","32"}}."""
@@ -116,8 +107,7 @@ def io_label(name: str, title: str, size: str) -> str:
 
 def image_slab(name: str, at: str, png: Optional[Path], height: float, depth: float,
                offset=(0, 0, 0)) -> str:
-    """Thin box whose east face shows a sinogram (views along the height, detector along the depth).
-    ``png`` is None (or missing): plain box."""
+    """Thin box whose east face shows a sinogram (views along the height, detector along the depth)."""
     return slab_box(name, at, height, depth, offset) + slab_image(name, png, height, depth)
 
 
@@ -126,10 +116,10 @@ def slab_box(name: str, at: str, height: float, depth: float, offset=(0, 0, 0)) 
 
 
 def slab_image(name: str, png: Optional[Path], height: float, depth: float) -> str:
-    """The sinogram on the east face of the slab ``name`` (drawn on top of what precedes it)."""
+    """The sinogram on the east face of the slab ``name``; nothing if the PNG is missing."""
     if png is None or not png.exists():
         return ""
-    # 0.2: scale of the PlotNeuralNet pics (box units -> cm)
+    # 0.2: PlotNeuralNet box units -> cm
     return rf"""
 \begin{{scope}}[shift={{({name}-east)}}]
     \node[canvas is zy plane at x=0,transform shape,inner sep=0pt] at (0,0)
@@ -164,8 +154,32 @@ def legend(anchor: str, entries: Sequence[Tuple[str, str, str]], columns: int = 
     return "\n".join(lines) + "\n"
 
 
+def down_connection(source: str, target: str) -> str:
+    """Encoder arm of the U: right, down to the next level, then into ``target``."""
+    return rf"""
+\path ({source}-east) -- ({target}-west |- {source}-east) coordinate[pos=0.5] ({source}-down);
+\draw[connection] ({source}-east) -- ({source}-down) -- node {{\midarrow}} ({source}-down |- {target}-west)
+    -- ({target}-west);
+"""
+
+
+def up_connection(source: str, target: str) -> str:
+    """Decoder arm of the U: right, then up into the bottom front edge of ``target``."""
+    return rf"""
+\coordinate ({target}-bottom) at ($({target}-nearsouthwest)!0.5!({target}-nearsoutheast)$);
+\draw[connection] ({source}-east) -- ({source}-east -| {target}-bottom) -- node {{\midarrow}} ({target}-bottom);
+"""
+
+
+def skip_connection(source: str, target: str) -> str:
+    """Skip connection across the U, at the height of its level."""
+    return rf"""
+\draw[copyconnection] ({source}-east) -- node {{\copymidarrow}} ({target}-west);
+"""
+
+
 def channel_width(channels: int, scale: float) -> float:
-    """Box thickness grows with log2(channels) so that wide layers stay readable."""
+    """Box thickness grows with log2(channels), so that wide layers stay readable."""
     return round(max(0.6, scale * math.log2(max(channels, 1))), 2)
 
 
@@ -178,26 +192,24 @@ def document(body: List[str], tex_dir: Path) -> List[str]:
     return [to_head(layers_root), COLORS, to_begin(), BUS_STYLE, *body, to_end()]
 
 
-# ---------------------------------------------------------------------------
-# Figures
-# ---------------------------------------------------------------------------
+UNET_LEGEND = [
+    ("band", r"\ConvColor|\ActColor", r"conv $3\times3$ + InstanceNorm + LeakyReLU"),
+    ("box", r"\PoolColor", r"max pooling $2\times2$"),
+    ("box", r"\UpColor", r"bilinear $\times2$ + conv $3\times3$"),
+    ("box", r"\CopyColor", r"skip connection (concatenation)"),
+    ("box", r"\OutColor", r"conv $1\times1$"),
+    ("ball", r"\SumColor", r"residual: $y + f_\theta(y)$"),
+    ("ball", r"\DCColor", r"data consistency (measured views kept)"),
+    ("arrow", "", r"copy of the input"),
+]
 
-def unet_figure(filters: int, views: int, detectors: int) -> List[str]:
-    """SinogramUNet: CustomUNet (3 poolings, Resize+Conv decoder), residual output, hard data consistency."""
-    padded = math.ceil(views / 8) * 8  # CustomUNet pads the views to a multiple of 8 (replicate)
-    levels = range(4)
-    chans = [filters * 2**lvl for lvl in levels]
-    size = [times(padded // 2**lvl, detectors // 2**lvl) for lvl in levels]
-    height = [round(40 * 0.75**lvl, 1) for lvl in levels]
-    depth = [round(h * detectors / padded, 1) for h in height]
-    width = [channel_width(c, 0.75) for c in chans]
 
-    arch = [image_slab("in", "0,0,0", sinogram("incomplete"), height[0], depth[0]),
-            io_label("in", "Incomplete $y$", times(views, detectors))]
-
+def unet_layers_row(chans, size, height, depth, width) -> List[str]:
+    """Encoder and decoder of the SinogramUNet in one row, the skip connections passing over the top."""
+    arch = []
     # Encoder: ConvBlock (2 x [conv 3x3, InstanceNorm, LeakyReLU]) then max pooling
     prev = "in"
-    for lvl in levels:
+    for lvl in range(4):
         name = f"enc{lvl}"
         arch.append(banded_box(name, f"{prev}-east", (chans[lvl], chans[lvl]), width=width[lvl], height=height[lvl],
                                depth=depth[lvl], size=size[lvl], offset=(2.2 if lvl == 0 else 1.2, 0, 0),
@@ -222,6 +234,78 @@ def unet_figure(filters: int, views: int, detectors: int) -> List[str]:
             to_skip(of=f"enc{lvl}", to=f"copy{lvl}", pos=1.25),
         ]
         prev = f"dec{lvl}"
+    return arch
+
+
+def unet_layers_u(chans, size, height, depth, width) -> List[str]:
+    """The same layers drawn as a U: the encoder goes down one level per pooling, the decoder comes back up, and
+    the skip connections cross the U at the height of their level."""
+    drop = [0.0, 9.5, 8.0, 6.5]  # vertical step from level l - 1 down to level l
+    gap = 3.0
+    arch = [banded_box("enc0", "in-east", (chans[0], chans[0]), width=width[0], height=height[0], depth=depth[0],
+                       size=size[0], offset=(2.2, 0, 0)),
+            to_connection("in", "enc0")]
+
+    # Encoder: max pooling opens the next level, then ConvBlock (2 x [conv 3x3, InstanceNorm, LeakyReLU])
+    for lvl in range(1, 4):
+        arch += [
+            box(f"pool{lvl}", f"enc{lvl - 1}-east", fill=r"\PoolColor", width=1, height=height[lvl], depth=depth[lvl],
+                offset=(gap, -drop[lvl], 0), opacity=0.5),
+            banded_box(f"enc{lvl}", f"pool{lvl}-east", (chans[lvl], chans[lvl]), width=width[lvl], height=height[lvl],
+                       depth=depth[lvl], size=size[lvl], caption="Bottleneck" if lvl == 3 else ""),
+            down_connection(f"enc{lvl - 1}", f"pool{lvl}"),
+        ]
+
+    # Decoder: skip features concatenated with the bilinear x2 + conv 3x3 branch (torch.cat([skip, x])), ConvBlock
+    prev = "enc3"
+    for lvl in (2, 1, 0):
+        arch += [
+            box(f"copy{lvl}", f"{prev}-east", chans[lvl], fill=r"\CopyColor", width=width[lvl], height=height[lvl],
+                depth=depth[lvl], offset=(gap, drop[lvl + 1], 0), opacity=0.25),
+            box(f"up{lvl}", f"copy{lvl}-east", fill=r"\UpColor", width=width[lvl], height=height[lvl],
+                depth=depth[lvl], opacity=0.5),
+            banded_box(f"dec{lvl}", f"up{lvl}-east", (chans[lvl], chans[lvl]), width=width[lvl], height=height[lvl],
+                       depth=depth[lvl]),
+            up_connection(prev, f"up{lvl}"),
+            skip_connection(f"enc{lvl}", f"copy{lvl}"),
+        ]
+        prev = f"dec{lvl}"
+    return arch
+
+
+def unet_figure(filters: int, views: int, detectors: int, u_shape: bool = False) -> List[str]:
+    """SinogramUNet: three poolings, bilinear + conv decoder, residual output, data consistency.
+
+    Compact row by default; ``u_shape`` draws the classic U, which takes more room."""
+    padded = math.ceil(views / 8) * 8  # the backbone pads the views to a multiple of 8
+    levels = range(4)
+    chans = [filters * 2**lvl for lvl in levels]
+    size = [times(padded // 2**lvl, detectors // 2**lvl) for lvl in levels]
+    height = [round(40 * 0.75**lvl, 1) for lvl in levels]
+    depth = [round(h * detectors / padded, 1) for h in height]
+    width = [channel_width(c, 0.75) for c in chans]
+
+    arch = [image_slab("in", "0,0,0", sinogram("incomplete"), height[0], depth[0]),
+            io_label("in", "Incomplete $y$", times(views, detectors))]
+    arch += (unet_layers_u if u_shape else unet_layers_row)(chans, size, height, depth, width)
+
+    # The copy of the input feeds the residual and the data consistency, above a U or below a row.
+    if u_shape:
+        bus = r"""
+\draw[bus] ($(in-east)+(0.9,0)$) -- ++(0,7.5) coordinate (bus) -- (bus -| sum-north)
+    node[pos=0.5,above,font=\small,opacity=1] {measured sinogram $y$: residual learning and data consistency}
+    -- (sum-north);
+\draw[bus] (bus -| sum-north) -- (bus -| dc-north) -- (dc-north);
+"""
+        legend_anchor = "$(in-west |- enc3-south)+(0,-3.5)$"
+    else:
+        bus = r"""
+\draw[bus] ($(in-east)+(0.9,0)$) -- ++(0,-7.6) coordinate (bus) -- (bus -| sum-south)
+    node[pos=0.5,below,font=\small,opacity=1] {measured sinogram $y$: residual learning and data consistency}
+    -- (sum-south);
+\draw[bus] (bus -| sum-south) -- (bus -| dc-south) -- (dc-south);
+"""
+        legend_anchor = "$(in-west)+(0,-9.2)$"
 
     # Output: conv 1x1, residual on the input, data consistency (measured views copied back)
     arch += [
@@ -235,28 +319,14 @@ def unet_figure(filters: int, views: int, detectors: int) -> List[str]:
         to_connection("head", "sum"),
         to_connection("sum", "dc"),
         to_connection("dc", "out"),
-        r"""
-\draw[bus] ($(in-east)+(0.9,0)$) -- ++(0,-7.6) coordinate (bus) -- (bus -| sum-south)
-    node[pos=0.5,below,font=\small,opacity=1] {measured sinogram $y$: residual learning and data consistency}
-    -- (sum-south);
-\draw[bus] (bus -| sum-south) -- (bus -| dc-south) -- (dc-south);
-""",
-        legend("$(in-west)+(0,-9.2)$", [
-            ("band", r"\ConvColor|\ActColor", r"conv $3\times3$ + InstanceNorm + LeakyReLU"),
-            ("box", r"\PoolColor", r"max pooling $2\times2$"),
-            ("box", r"\UpColor", r"bilinear $\times2$ + conv $3\times3$"),
-            ("box", r"\CopyColor", r"skip connection (concatenation)"),
-            ("box", r"\OutColor", r"conv $1\times1$"),
-            ("ball", r"\SumColor", r"residual: $y + f_\theta(y)$"),
-            ("ball", r"\DCColor", r"data consistency (measured views kept)"),
-            ("arrow", "", r"copy of the input"),
-        ], columns=4, col_width=7.2),
+        bus,
+        legend(legend_anchor, UNET_LEGEND, columns=4, col_width=7.2),
     ]
     return arch
 
 
-def mini_unet(prev: str, views: int, detectors: int, height0: float) -> List[str]:
-    """Schematic SinogramUNet without labels (the detailed one is arch_unet): menc0..menc3, mdec2..mdec0."""
+def mini_unet_row(prev: str, views: int, detectors: int, height0: float) -> List[str]:
+    """Schematic SinogramUNet in one row, without labels (detailed in arch_unet): menc0..menc3, mdec2..mdec0."""
     padded = math.ceil(views / 8) * 8
     height = [round(height0 * 0.75**lvl, 1) for lvl in range(4)]
     depth = [round(h * detectors / padded, 1) for h in height]
@@ -277,25 +347,61 @@ def mini_unet(prev: str, views: int, detectors: int, height0: float) -> List[str
     return arch
 
 
-def unet_hlcc_p4_figure(views: int, detectors: int, max_order: int) -> List[str]:
-    """UNet2dHLCC_P<K>: U-Net trained with MSE + HLCC penalty (orders 0-1), then the HLCC moment regression of
-    orders 0..K (``HLCCMomentProjection``: no trainable parameter, applied at inference only).
+def mini_unet_u(prev: str, views: int, detectors: int, height0: float) -> List[str]:
+    """The same schematic U-Net drawn as a U."""
+    padded = math.ceil(views / 8) * 8
+    height = [round(height0 * 0.75**lvl, 1) for lvl in range(4)]
+    depth = [round(h * detectors / padded, 1) for h in height]
+    drop = [0.0, 5.5, 4.6, 3.8]
+    gap = 1.8
+    arch = [banded_box("menc0", f"{prev}-east", ("", ""), width=0.6, height=height[0], depth=depth[0],
+                       offset=(2.0, 0, 0)),
+            to_connection(prev, "menc0")]
+    for lvl in range(1, 4):
+        arch += [banded_box(f"menc{lvl}", f"menc{lvl - 1}-east", ("", ""), width=0.6 + 0.3 * lvl,
+                            height=height[lvl], depth=depth[lvl], offset=(gap, -drop[lvl], 0)),
+                 down_connection(f"menc{lvl - 1}", f"menc{lvl}")]
+    prev = "menc3"
+    for lvl in (2, 1, 0):
+        arch += [banded_box(f"mdec{lvl}", f"{prev}-east", ("", ""), width=0.6 + 0.3 * lvl, height=height[lvl],
+                            depth=depth[lvl], offset=(gap, drop[lvl + 1], 0)),
+                 up_connection(prev, f"mdec{lvl}"),
+                 skip_connection(f"menc{lvl}", f"mdec{lvl}")]
+        prev = f"mdec{lvl}"
+    return arch
 
-    Layout: the network on the first row (left to right), the moment regression below it (right to left),
-    so that the output comes back under the input."""
+
+def unet_hlcc_p4_figure(views: int, detectors: int, max_order: int, u_shape: bool = False) -> List[str]:
+    """UNet2dHLCC_P<K>: the U-Net trained with MSE + HLCC penalty, then the moment regression of orders 0..K.
+
+    The U-Net runs left to right at the top and the regression right to left below it, so that the output comes
+    back under the input. ``u_shape`` draws the U-Net as a U instead of a row."""
     height = 24.0
     depth = round(height * detectors / views, 1)
     correction = sinogram(f"p{max_order}_correction_2d")
     image = (r"\\[3pt]\includegraphics[height=1.9cm]{" + correction.relative_to(TEX_DIR).as_posix() + "}"
              r"\\[-1pt]{\scriptsize $M\odot\delta$ on the test sample}") if correction else ""
-    flowchart = r"""
-% Network part: the bus from the input feeds the residual, the data consistency and the moment regression
-\draw[decorate,decoration={brace,mirror,amplitude=6pt},thick]
+    # Brace under the U-Net, and the bus from the input, which runs below the whole network
+    if u_shape:
+        network = r"""\draw[decorate,decoration={brace,mirror,amplitude=6pt},thick]
+    ($(menc0-west |- menc3-south)+(-0.7,-0.6)$) -- ($(mdec0-east |- menc3-south)+(0,-0.6)$)
+    node[midway,below=8pt,font=\small] {U-Net $f_\theta$ (same network as UNet2D)};
+\path ($(in-east)+(0.9,0)$) coordinate (b0);
+\path (b0 |- menc3-south) ++(0,-2.6) coordinate (b1);
+\draw[bus] (b0) -- (b1) -| (sum-south);
+"""
+        regression_at = "$(in-west |- b1)+(-0.8,-2.0)$"
+    else:
+        network = r"""\draw[decorate,decoration={brace,mirror,amplitude=6pt},thick]
     ($(menc0-west |- menc0-south)+(-0.7,-1.4)$) -- ($(mdec0-east |- menc0-south)+(0,-1.4)$)
     node[midway,below=8pt,font=\small] {U-Net $f_\theta$ (same network as UNet2D)};
 \path ($(in-east)+(0.9,0)$) coordinate (b0);
 \draw[bus] (b0) -- ++(0,-5.0) coordinate (b1) -| (sum-south);
-\draw[bus] (b1 -| sum-south) -| (dc-south);
+"""
+        regression_at = "$(in-west)+(-0.8,-7.0)$"
+    flowchart = r"""
+% Network part: the bus from the input feeds the residual, the data consistency and the moment regression
+<NETWORK>\draw[bus] (b1 -| sum-south) -| (dc-south);
 \node[anchor=west,align=left,font=\small] at ($(yhat-east)+(1.0,0)$) {\textbf{UNet2dHLCC}\\$\hat y$};
 
 % Training loss (UNet2dHLCC only)
@@ -306,7 +412,7 @@ def unet_hlcc_p4_figure(views: int, detectors: int, max_order: int) -> List[str]
 \draw[bus,dashed] (yhat-north) -- (yhat-north |- loss.south);
 
 % HLCC moment regression P_K: first row, left to right
-\node[op,text width=4.8cm,anchor=north west] (my) at ($(in-west)+(-0.8,-7.0)$)
+\node[op,text width=4.8cm,anchor=north west] (my) at (<REGRESSION_AT>)
     {moments of the measured views\\
      $a^{y}_n(\theta)=\sum_s y(\theta,s)\,U_n(s/S)$\\
      $\theta\in\Theta_{\mathrm{acq}}$, $n=0,\dots,<K>$};
@@ -335,7 +441,9 @@ def unet_hlcc_p4_figure(views: int, detectors: int, max_order: int) -> List[str]
 \draw[bus] (corr) -- (upd);
 \coordinate (title) at ($(my.north west)+(0,0.75)$);
 """
-    flowchart = flowchart.replace("<K>", str(max_order)).replace("<IMAGE>", image)
+    flowchart = (flowchart.replace("<NETWORK>", network).replace("<REGRESSION_AT>", regression_at)
+                 .replace("<K>", str(max_order)).replace("<IMAGE>", image))
+    mini_unet = mini_unet_u if u_shape else mini_unet_row
 
     return [
         image_slab("in", "0,0,0", sinogram("incomplete"), height, depth),
@@ -349,7 +457,7 @@ def unet_hlcc_p4_figure(views: int, detectors: int, max_order: int) -> List[str]
         to_connection("dc", "yhat"),
         slab_image("yhat", sinogram("unet2dhlcc"), height, depth),
         flowchart,
-        # Output under the input: the arrow arrives on the east face, under the image
+        # Output under the input, the arrow arriving on the east face
         slab_box("yp4", "$(upd.west)+(-2.6,0)$", height, depth),
         r"""
 \draw[connection] (upd.west) -- node {\midarrow} (yp4-east);
@@ -366,7 +474,7 @@ def unet_hlcc_p4_figure(views: int, detectors: int, max_order: int) -> List[str]
 
 
 def viewgraph_figure(num_stalks: int, k: int, views: int, detectors: int) -> List[str]:
-    """ViewGraphNet: nodes = views, features [2F, V, D]; residual blocks of detector convs + graph conv."""
+    """ViewGraphNet: nodes are the views, features [2F, V, D], residual blocks of detector convs + graph conv."""
     channels, hidden = 2 * num_stalks, max(1, num_stalks // 2)
     height = 32.0
     depth = round(height * detectors / views, 1)
@@ -456,22 +564,18 @@ def viewgraph_figure(num_stalks: int, k: int, views: int, detectors: int) -> Lis
     return arch
 
 
-# ---------------------------------------------------------------------------
-# Sinogram images
-# ---------------------------------------------------------------------------
-
 def render_sinograms(sample_index: int, noise_level: float, max_order: int) -> None:
     """PNGs of the test sample shown by the U-Net figures: input, outputs and the P_K correction.
-    Needs ASTRA (GPU projector of the dataset) and the UNet2D / UNet2dHLCC checkpoints; the models run on CPU."""
+    Needs ASTRA (GPU projector) and the UNet2D / UNet2dHLCC checkpoints; the models run on the CPU."""
     import matplotlib.pyplot as plt
     import numpy as np
     import torch
 
-    from src_2D.data.dataset_2d import SinogramCompletionDataset
-    from src_2D.models.factory import get_model
+    from src.dataset import SinogramCompletionDataset
+    from src.models.factory import get_model
 
     dataset = SinogramCompletionDataset(sample_index + 1, split="test", noise_level=noise_level,
-                                        geometry_config=DBTGeometryConfig())
+                                        geometry_config=GeometryConfig())
     incomplete, full, _ = dataset[sample_index]
     device = torch.device("cpu")
     unet, _ = get_model("UNet2D", device)
@@ -481,8 +585,8 @@ def render_sinograms(sample_index: int, noise_level: float, max_order: int) -> N
         outputs = {"unet2d": unet(x), "unet2dhlcc": hlcc_pk.model(x), f"unet2dhlcc_p{max_order}": hlcc_pk(x)}
 
     def save(name: str, sino: torch.Tensor, slab: bool = True, **style) -> None:
-        # [V, D] with the first view (-90 deg) at the bottom. On a slab the detector axis is mirrored: the depth
-        # axis of PlotNeuralNet points towards the reader, which mirrors the image back.
+        # [V, D], first view (-90 deg) at the bottom. On a slab the detector axis is mirrored, because the depth
+        # axis of PlotNeuralNet points towards the reader.
         image = np.flipud(sino.squeeze().cpu().numpy())
         plt.imsave(SINO_DIR / f"{name}.png", np.fliplr(image) if slab else image, **style)
         print(f"wrote {(SINO_DIR / name).relative_to(PROJECT_ROOT)}.png")
@@ -496,10 +600,6 @@ def render_sinograms(sample_index: int, noise_level: float, max_order: int) -> N
     limit = float(correction.abs().max())
     save(f"p{max_order}_correction_2d", correction, slab=False, cmap="RdBu_r", vmin=-limit, vmax=limit)
 
-
-# ---------------------------------------------------------------------------
-# Generation / compilation
-# ---------------------------------------------------------------------------
 
 def find_latex(requested: str | None) -> str | None:
     if requested:
@@ -523,26 +623,31 @@ def compile_tex(tex_path: Path, latex: str) -> Path:
     return pdf_path
 
 
+FIGURES = ("unet", "unet_ushape", "unet_hlcc_p4", "unet_hlcc_p4_ushape", "viewgraph")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--model", choices=("unet", "unet_hlcc_p4", "viewgraph", "all"), default="all")
+    parser.add_argument("--model", choices=(*FIGURES, "all"), default="all")
     parser.add_argument("--latex", default=None, help="LaTeX compiler (default: tectonic or pdflatex from the PATH)")
     parser.add_argument("--no-compile", action="store_true", help="only write the .tex sources")
     parser.add_argument("--sinograms", action="store_true", help="re-render the sinogram images (ASTRA + checkpoints)")
     parser.add_argument("--sample", type=int, default=0, help="test sample shown by the U-Net figures")
-    parser.add_argument("--noise_level", type=float, default=1e5, help="as in evaluate_all.py")
+    parser.add_argument("--noise_level", type=float, default=1e5, help="as in src.evaluate")
     args = parser.parse_args()
 
-    max_order = 4  # the "_P4" models of the protocol
+    max_order = 4  # the _P4 models
     if args.sinograms:
         render_sinograms(args.sample, args.noise_level, max_order)
 
-    geometry = DBTGeometryConfig()
+    geometry = GeometryConfig()
     views, detectors = geometry.num_views_full, geometry.det_col_count
     unet_cfg, graph_cfg = DEFAULT_MODEL_CONFIG["UNet2D"], DEFAULT_MODEL_CONFIG["SNN"]
     figures = {
         "unet": lambda: unet_figure(unet_cfg["filters"], views, detectors),
+        "unet_ushape": lambda: unet_figure(unet_cfg["filters"], views, detectors, u_shape=True),
         "unet_hlcc_p4": lambda: unet_hlcc_p4_figure(views, detectors, max_order),
+        "unet_hlcc_p4_ushape": lambda: unet_hlcc_p4_figure(views, detectors, max_order, u_shape=True),
         "viewgraph": lambda: viewgraph_figure(graph_cfg["num_stalks"], graph_cfg["k"], views, detectors),
     }
     selected = figures if args.model == "all" else {args.model: figures[args.model]}

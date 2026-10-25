@@ -1,33 +1,22 @@
-#!/usr/bin/env python3
 """U-Net vs U-Net + HLCC with few and many training phantoms: paired comparison on the test split.
 
-    MODELS=$(.venv/bin/python scripts/data_study_report.py --print_models)
-    .venv/bin/python src_2D/evaluate_all.py --models $MODELS          # per-sample metrics of every run
-    .venv/bin/python scripts/data_study_report.py                     # tables + figures
-    .venv/bin/python scripts/data_study_report.py --seed 1            # the replicas of SEED=1 (runs <run>_S1)
+    python -m src.evaluate --models $(python -m scripts.data_study_report --print_models)
+    python -m scripts.data_study_report
+    python -m scripts.data_study_report --seed 1     # the replicas <run>_S1
 
-The runs are those of scripts/launch_unet_hlcc_data_study.sh. For every training-set size, each HLCC
-variant is compared with the plain U-Net TRAINED ON THE SAME PHANTOMS:
+For every training-set size (runs <model> and <model>_N<n>), each HLCC variant (the penalty during
+training, UNet2dHLCC, and/or the moment regression after the network, _P4) is compared with the plain U-Net trained
+on the same phantoms. Both are scored on the same test samples: the effect is the change of the mean, with a 95 %
+bootstrap interval over the samples (resampled in pairs) and a paired Wilcoxon p-value (uncorrected).
 
-    + HLCC loss, orders 0-1           the penalty during training (UNet2dHLCC)
-    + HLCC projection                 the moment regression of orders 0..4 after the network ("_P4")
+The interval does not include the run-to-run variability of a training: an effect of a few percent must keep its
+sign on the seed replicas to be trusted.
 
-The two models are scored on the same test samples, so the comparison is PAIRED: the effect is the
-change of the mean metric, its 95 % interval is a bootstrap over the test samples (resampled in pairs)
-and the p-value is a paired Wilcoxon test (not corrected for the number of comparisons).
-
-What this interval does NOT contain: the run-to-run variability of a training. Two runs that differ
-only by their seed also differ "significantly" on a fixed test set; an effect of a few percent must
-keep its sign on the replicas (SEED=1 bash scripts/launch_unet_hlcc_data_study.sh) to be trusted.
-
-Outputs:
-    outputs/evaluation/data_study_summary.csv          every number of the tables
-    outputs/figures/hlcc_data_study.pdf / .png         change of the wedge MSE vs the plain U-Net, per size
-    outputs/figures/hlcc_data_study_curves.pdf / .png  validation curves of the runs (from history.json)
+Outputs: outputs/evaluation/data_study_summary.csv, outputs/figures/hlcc_data_study.{pdf,png} (change of the wedge
+MSE) and outputs/figures/hlcc_data_study_curves.{pdf,png} (validation curves from history.json).
 """
 import argparse
 import json
-import sys
 from pathlib import Path
 
 import matplotlib
@@ -39,29 +28,22 @@ import pandas as pd
 from matplotlib.ticker import FuncFormatter, LogLocator, NullFormatter
 from scipy.stats import wilcoxon
 
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
-if str(PROJECT_ROOT) not in sys.path:
-    sys.path.insert(0, str(PROJECT_ROOT))
+from src.models.factory import BASELINES, run_name_of
+from src.paths import CHECKPOINT_DIR, EVALUATION_DIR, FIGURES_DIR
+from src.plotting import AXIS, FAMILY_COLORS, GRID, INK, SECONDARY, signed, style_axis
 
-from src_2D.models.factory import CHECKPOINT_ROOT, run_name_of
-
-# Same visual language as scripts/hlcc_order_study.py: colour = model family (here the U-Net blue),
-# the variants differ by position, line style and marker. Text always uses the ink tokens.
-INK, SECONDARY, GRID, AXIS, BAND = "#0b0b0b", "#52514e", "#e1e0d9", "#c3c2b7", "#f0efec"
-UNET_COLOR = "#2a78d6"
+UNET_COLOR = FAMILY_COLORS["U-Net"]  # the variants differ by position, line style and marker
 VARIANT_STYLES = [("-", "o"), ("--", "s"), (":", "^")]
 
-BASELINES = ["ZeroFilling", "LinearInterp"]
 PROJECTION_TAG = "P4"
 # (run prefix, label of the training loss); the first one is the reference of the comparison.
 LOSSES = [("UNet2D", "U-Net (MSE only)"), ("UNet2dHLCC", "+ HLCC loss, orders 0–1")]
 PROJECTED_LABELS = ["+ HLCC projection", "+ HLCC loss 0–1 and projection"]
 IMAGE_METRIC = "img_psnr"
-TABLE_METRICS = ["mse_wedge", "psnr_wedge", "ssim_wedge", "img_psnr", "img_ssim"]
 
 
 def model_name(base: str, size: int, n_high: int, seed: int, projected: bool = False) -> str:
-    """Run name of scripts/launch_unet_hlcc_data_study.sh, plus the projection suffix of models/factory.py."""
+    """Run name of the data study (<model>[_N<n>][_S<seed>]), plus the projection suffix."""
     name = base + (f"_N{size}" if size != n_high else "") + (f"_S{seed}" if seed != 0 else "")
     return f"{name}_{PROJECTION_TAG}" if projected else name
 
@@ -69,15 +51,15 @@ def model_name(base: str, size: int, n_high: int, seed: int, projected: bool = F
 def variants(size: int, n_high: int, seed: int) -> list:
     """(label, model name) of one training-set size: the reference first, then every HLCC variant."""
     trained = [(label, model_name(base, size, n_high, seed)) for base, label in LOSSES]
-    projected = [(label, model_name(base, size, n_high, seed, projected=True)) for (base, _), label in zip(LOSSES, PROJECTED_LABELS)]
+    projected = [(label, model_name(base, size, n_high, seed, projected=True))
+                 for (base, _), label in zip(LOSSES, PROJECTED_LABELS)]
     return trained + projected
 
 
 def paired_effect(candidate: np.ndarray, reference: np.ndarray, rng, relative: bool, n_boot: int = 10_000) -> dict:
-    """Effect of a variant on the MEAN of a metric, both models being scored on the same samples.
+    """Effect on the mean of a metric, both models scored on the same samples, with a paired bootstrap 95 % interval.
 
-    relative=True: mean(candidate) / mean(reference) - 1; otherwise mean(candidate) - mean(reference).
-    The 95 % interval is a percentile bootstrap over the samples, resampled in pairs.
+    relative=True: mean(candidate) / mean(reference) - 1, otherwise mean(candidate) - mean(reference).
     """
     def effect(c: np.ndarray, r: np.ndarray):
         return c.mean(axis=-1) / r.mean(axis=-1) - 1.0 if relative else c.mean(axis=-1) - r.mean(axis=-1)
@@ -86,17 +68,14 @@ def paired_effect(candidate: np.ndarray, reference: np.ndarray, rng, relative: b
     low, high = np.percentile(effect(candidate[draws], reference[draws]), [2.5, 97.5])
     differences = candidate - reference
     p_value = float(wilcoxon(differences).pvalue) if np.any(differences != 0) else 1.0
-    return {"effect": float(effect(candidate, reference)), "ci_low": float(low), "ci_high": float(high), "p_value": p_value}
-
-
-def signed(value: float, digits: int = 1, unit: str = " %") -> str:
-    """"+3.1 %" / "−9.8 %", with a typographic minus sign."""
-    return f"{value:+.{digits}f}{unit}".replace("-", "−")
+    return {"effect": float(effect(candidate, reference)), "ci_low": float(low), "ci_high": float(high),
+            "p_value": p_value}
 
 
 def compare_size(metrics: pd.DataFrame, size: int, n_high: int, seed: int, rng) -> pd.DataFrame:
     """One row per evaluated variant of a training-set size, the reference (plain U-Net) first."""
-    per_sample = {col: metrics.pivot(index="Sample", columns="Model", values=col) for col in metrics.columns.drop(["Sample", "Model"])}
+    per_sample = {col: metrics.pivot(index="Sample", columns="Model", values=col)
+                  for col in metrics.columns.drop(["Sample", "Model"])}
     names = variants(size, n_high, seed)
     reference = names[0][1]
     available = set(per_sample["mse_wedge"].columns)
@@ -110,12 +89,15 @@ def compare_size(metrics: pd.DataFrame, size: int, n_high: int, seed: int, rng) 
         row = {"n_train": size, "variant": label, "model": name}
         row.update({col: per_sample[col][name].mean() for col in per_sample})
         if name != reference:
-            mse = paired_effect(per_sample["mse_wedge"][name].to_numpy(), per_sample["mse_wedge"][reference].to_numpy(), rng, relative=True)
-            image = paired_effect(per_sample[IMAGE_METRIC][name].to_numpy(), per_sample[IMAGE_METRIC][reference].to_numpy(), rng, relative=False)
-            row.update({f"mse_wedge_change_percent{k}": 100.0 * mse[v] for k, v in (("", "effect"), ("_ci_low", "ci_low"), ("_ci_high", "ci_high"))})
+            mse_name, mse_ref = per_sample["mse_wedge"][name], per_sample["mse_wedge"][reference]
+            mse = paired_effect(mse_name.to_numpy(), mse_ref.to_numpy(), rng, relative=True)
+            image = paired_effect(per_sample[IMAGE_METRIC][name].to_numpy(),
+                                  per_sample[IMAGE_METRIC][reference].to_numpy(), rng, relative=False)
+            suffixes = (("", "effect"), ("_ci_low", "ci_low"), ("_ci_high", "ci_high"))
+            row.update({f"mse_wedge_change_percent{k}": 100.0 * mse[v] for k, v in suffixes})
             row["mse_wedge_p_value"] = mse["p_value"]
-            row["samples_improved_percent"] = 100.0 * (per_sample["mse_wedge"][name] < per_sample["mse_wedge"][reference]).mean()
-            row.update({f"{IMAGE_METRIC}_gain_db{k}": image[v] for k, v in (("", "effect"), ("_ci_low", "ci_low"), ("_ci_high", "ci_high"))})
+            row["samples_improved_percent"] = 100.0 * (mse_name < mse_ref).mean()
+            row.update({f"{IMAGE_METRIC}_gain_db{k}": image[v] for k, v in suffixes})
             row[f"{IMAGE_METRIC}_p_value"] = image["p_value"]
         rows.append(row)
     return pd.DataFrame(rows)
@@ -125,7 +107,7 @@ def training_curves(size: int, n_high: int, seed: int) -> dict:
     """label -> (history, training stats) of the trained runs of one size whose history.json exists."""
     curves = {}
     for base, label in LOSSES:
-        run_dir = CHECKPOINT_ROOT / run_name_of(model_name(base, size, n_high, seed))
+        run_dir = CHECKPOINT_DIR / run_name_of(model_name(base, size, n_high, seed))
         if (run_dir / "history.json").exists() and (run_dir / "training_stats.json").exists():
             curves[label] = (pd.DataFrame(json.loads((run_dir / "history.json").read_text())),
                              json.loads((run_dir / "training_stats.json").read_text()))
@@ -141,15 +123,18 @@ def print_tables(summary: pd.DataFrame, n_samples: int) -> None:
         if len(table) > 1:
             compared = table["mse_wedge_change_percent"].notna()
             shown["change"] = np.where(compared, table["mse_wedge_change_percent"].map("{:+.1f} %".format), "reference")
-            shown["95 % interval"] = np.where(compared, [f"[{low:+.1f}, {high:+.1f}]" for low, high in
-                                                         zip(table["mse_wedge_change_percent_ci_low"], table["mse_wedge_change_percent_ci_high"])], "")
+            intervals = zip(table["mse_wedge_change_percent_ci_low"], table["mse_wedge_change_percent_ci_high"])
+            shown["95 % interval"] = np.where(compared, [f"[{low:+.1f}, {high:+.1f}]" for low, high in intervals], "")
             shown["p"] = np.where(compared, table["mse_wedge_p_value"].map("{:.1e}".format), "")
             shown["better on"] = np.where(compared, table["samples_improved_percent"].map("{:.0f} %".format), "")
-        for col, fmt in (("psnr_wedge", "{:.2f}"), ("ssim_wedge", "{:.4f}"), ("img_psnr", "{:.2f}"), ("img_ssim", "{:.4f}")):
+        formats = {"psnr_wedge": "{:.2f}", "ssim_wedge": "{:.4f}", "img_psnr": "{:.2f}", "img_ssim": "{:.4f}"}
+        for col, fmt in formats.items():
             shown[col] = table[col].map(fmt.format)
         if len(table) > 1:
-            shown[f"{IMAGE_METRIC} gain (dB)"] = np.where(compared, [f"{gain:+.2f} [{low:+.2f}, {high:+.2f}]" for gain, low, high in zip(
-                table[f"{IMAGE_METRIC}_gain_db"], table[f"{IMAGE_METRIC}_gain_db_ci_low"], table[f"{IMAGE_METRIC}_gain_db_ci_high"])], "")
+            gains = zip(table[f"{IMAGE_METRIC}_gain_db"], table[f"{IMAGE_METRIC}_gain_db_ci_low"],
+                        table[f"{IMAGE_METRIC}_gain_db_ci_high"])
+            shown[f"{IMAGE_METRIC} gain (dB)"] = np.where(
+                compared, [f"{gain:+.2f} [{low:+.2f}, {high:+.2f}]" for gain, low, high in gains], "")
         print(shown.to_string(index=False))
 
         residual_cols = [col for col in table.columns if col.startswith("hlcc_residual_")]
@@ -158,22 +143,14 @@ def print_tables(summary: pd.DataFrame, n_samples: int) -> None:
             print(table.set_index("model")[residual_cols].to_string(float_format=lambda value: f"{value:.2e}"))
 
 
-def style_axis(ax) -> None:
-    ax.set_axisbelow(True)
-    for side in ("top", "right"):
-        ax.spines[side].set_visible(False)
-    for side in ("left", "bottom"):
-        ax.spines[side].set_color(AXIS)
-    ax.tick_params(colors=SECONDARY, labelsize=9)
-
-
 def plot_changes(summary: pd.DataFrame, n_samples: int, path: Path) -> None:
-    """Change of the wedge MSE of every variant relative to the plain U-Net, one panel per training-set size."""
+    """Change of the wedge MSE of every variant vs the plain U-Net, one panel per training-set size."""
     sizes = list(summary["n_train"].unique())
     labels = [label for _, label in LOSSES[1:]] + PROJECTED_LABELS
     rows = {label: y for y, label in enumerate(labels)}
     compared = summary[summary["mse_wedge_change_percent"].notna()]
-    reach = max(5.0, 1.15 * compared[["mse_wedge_change_percent_ci_low", "mse_wedge_change_percent_ci_high"]].abs().to_numpy().max())
+    bounds = compared[["mse_wedge_change_percent_ci_low", "mse_wedge_change_percent_ci_high"]]
+    reach = max(5.0, 1.15 * bounds.abs().to_numpy().max())
 
     fig, axes = plt.subplots(1, len(sizes), figsize=(5.4 * len(sizes) + 2.2, 3.9), sharex=True, sharey=True,
                              squeeze=False, layout="constrained")
@@ -201,7 +178,8 @@ def plot_changes(summary: pd.DataFrame, n_samples: int, path: Path) -> None:
         ax.text(0.99, 0.01, "worse →", transform=ax.transAxes, ha="right", va="bottom", fontsize=8, color=SECONDARY)
         style_axis(ax)
     fig.suptitle(f"Effect of the HLCC on a U-Net trained on the same phantoms "
-                 f"(point: change of the mean, bar: 95 % interval over {n_samples} test samples)", fontsize=11.5, color=INK)
+                 f"(point: change of the mean, bar: 95 % interval over {n_samples} test samples)",
+                 fontsize=11.5, color=INK)
     for suffix in ("pdf", "png"):
         fig.savefig(path.with_suffix(f".{suffix}"), dpi=150, bbox_inches="tight", facecolor="white")
     plt.close(fig)
@@ -209,13 +187,14 @@ def plot_changes(summary: pd.DataFrame, n_samples: int, path: Path) -> None:
 
 def plot_curves(curves: dict, path: Path) -> None:
     """Validation wedge MSE of the trained runs over the epochs, one panel per training-set size."""
-    fig, axes = plt.subplots(1, len(curves), figsize=(5.6 * len(curves), 4.4), sharey=True, squeeze=False, layout="constrained")
+    fig, axes = plt.subplots(1, len(curves), figsize=(5.6 * len(curves), 4.4), sharey=True, squeeze=False,
+                             layout="constrained")
     styles = {label: style for (_, label), style in zip(LOSSES, VARIANT_STYLES)}
     handles = {}
     for ax, (size, runs) in zip(axes[0], curves.items()):
         for index, (label, (history, _)) in enumerate(runs.items()):
             linestyle, marker = styles[label]
-            # Staggered markers keep the curves apart where they overlap.
+            # Staggered markers keep overlapping curves apart.
             handles[label], = ax.plot(history["epoch"], history["val/mse_wedge"], color=UNET_COLOR, linewidth=1.8,
                                       linestyle=linestyle, marker=marker, markersize=6, markeredgecolor="white",
                                       markeredgewidth=1.2, markevery=(10 + 10 * index, 30))
@@ -245,7 +224,8 @@ def print_overfitting(curves: dict) -> None:
     for size, runs in curves.items():
         for label, (history, stats) in runs.items():
             last = history.iloc[-1]
-            rows.append({"n_train": size, "loss": label, "best epoch": f"{stats['best']['best_epoch']} / {stats['epochs_run']}",
+            rows.append({"n_train": size, "loss": label,
+                         "best epoch": f"{stats['best']['best_epoch']} / {stats['epochs_run']}",
                          "val mse_wedge (best)": f"{stats['best']['mse_wedge']:.3e}",
                          "train mse (last)": f"{last['train/mse']:.3e}", "val mse (last)": f"{last['val/mse']:.3e}",
                          "val / train": f"{last['val/mse'] / last['train/mse']:.1f}"})
@@ -255,19 +235,19 @@ def print_overfitting(curves: dict) -> None:
 
 def main():
     parser = argparse.ArgumentParser(description="Paired comparison of the U-Net / HLCC data study on the test split")
-    parser.add_argument("--metrics", type=Path, default=PROJECT_ROOT / "outputs/evaluation/model_comparison_metrics.csv",
-                        help="Per-sample metrics written by src_2D/evaluate_all.py")
+    parser.add_argument("--metrics", type=Path, default=EVALUATION_DIR / "model_comparison_metrics.csv",
+                        help="Per-sample metrics written by src.evaluate")
     parser.add_argument("--sizes", type=int, nargs="+", default=[200, 2000], help="Training-set sizes, in phantoms")
     parser.add_argument("--n_high", type=int, default=2000, help="Size of the runs without the _N<n> suffix")
     parser.add_argument("--seed", type=int, default=0, help="Seed of the runs (another seed: runs <run>_S<seed>)")
-    parser.add_argument("--print_models", action="store_true", help="Only print the model names to pass to evaluate_all.py")
-    parser.add_argument("--figures_dir", type=Path, default=PROJECT_ROOT / "outputs/figures")
-    parser.add_argument("--out_csv", type=Path, default=PROJECT_ROOT / "outputs/evaluation/data_study_summary.csv")
+    parser.add_argument("--print_models", action="store_true", help="Only print the model names to evaluate")
+    parser.add_argument("--figures_dir", type=Path, default=FIGURES_DIR)
+    parser.add_argument("--out_csv", type=Path, default=EVALUATION_DIR / "data_study_summary.csv")
     args = parser.parse_args()
 
     expected = [name for size in args.sizes for _, name in variants(size, args.n_high, args.seed)]
     if args.print_models:
-        print(" ".join(BASELINES + expected))
+        print(" ".join([*BASELINES, *expected]))
         return
 
     metrics = pd.read_csv(args.metrics)
@@ -278,7 +258,8 @@ def main():
     rng = np.random.default_rng(0)
     tables = [compare_size(metrics, size, args.n_high, args.seed, rng) for size in args.sizes]
     if all(table.empty for table in tables):
-        raise SystemExit("No plain U-Net of the study in the metrics file: run src_2D/evaluate_all.py first (see --print_models).")
+        raise SystemExit("No plain U-Net of the study in the metrics file: run src.evaluate first "
+                         "(see --print_models).")
     summary = pd.concat(tables, ignore_index=True)
     n_samples = metrics["Sample"].nunique()
 

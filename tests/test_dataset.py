@@ -1,10 +1,10 @@
-"""Seeded, immutable and disjoint splits that never touch the global RNG state."""
+"""Seeded, fixed and disjoint splits that never touch the global RNG state."""
 from typing import Tuple, cast
 
 import numpy as np
 import torch
 
-from src_2D.data.dataset_2d import SinogramCompletionDataset
+from src.dataset import SinogramCompletionDataset
 
 
 def _equal(a, b):
@@ -12,16 +12,17 @@ def _equal(a, b):
 
 
 def _numpy_key_state() -> np.ndarray:
-    """The Mersenne Twister key of the global numpy RNG (legacy tuple layout)."""
     return np.asarray(cast(Tuple, np.random.get_state(legacy=True))[1])
 
 
 def test_samples_are_reproducible_including_noise(config):
     first = SinogramCompletionDataset(4, split="test", geometry_config=config)
-    second = SinogramCompletionDataset(4, split="test", geometry_config=config)  # fresh instance
-    np.random.seed(123); torch.manual_seed(123)
+    second = SinogramCompletionDataset(4, split="test", geometry_config=config)
+    np.random.seed(123)
+    torch.manual_seed(123)
     a = first[2]
-    np.random.seed(999); torch.manual_seed(999)  # a different global state must not matter
+    np.random.seed(999)  # another global state must not matter
+    torch.manual_seed(999)
     assert _equal(a, first[2]) and _equal(a, second[2])
     assert not torch.equal(a[0][a[0] != 0], a[1][a[0] != 0]), "the measured views should be noisy"
 
@@ -35,8 +36,9 @@ def test_global_rng_state_is_untouched(config):
 
 
 def test_splits_are_disjoint(config):
-    phantoms = {split: torch.stack([SinogramCompletionDataset(6, split=split, noise_level=0.0, geometry_config=config)[i][2]
-                                    for i in range(6)]) for split in ("train", "val", "test")}
+    phantoms = {split: torch.stack([SinogramCompletionDataset(6, split=split, noise_level=0.0,
+                                                              geometry_config=config)[i][2] for i in range(6)])
+                for split in ("train", "val", "test")}
     for a, b in (("train", "val"), ("train", "test"), ("val", "test")):
         for i in range(6):
             for j in range(6):

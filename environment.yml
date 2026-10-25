@@ -1,0 +1,22 @@
+# conda env create -p ./.venv -f environment.yml
+name: sinogram-completion
+channels:
+  - astra-toolbox
+  - conda-forge
+dependencies:
+  - python=3.10
+  - astra-toolbox=2.5.0
+  - numpy=1.26
+  - scipy=1.15
+  - ipykernel
+  - pip
+  - pip:
+      - --extra-index-url https://download.pytorch.org/whl/cu118
+      - torch==2.7.1+cu118
+      - scikit-image==0.25.2
+      - pandas==2.3.3
+      - matplotlib==3.10.9
+      - optuna==4.9.0
+      - wandb
+      - tqdm
+      - pytest
