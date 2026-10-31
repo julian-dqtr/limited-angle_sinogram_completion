@@ -50,8 +50,8 @@ filtered back-projection of the completed sinogram. ↓ lower is better, ↑ hig
 
 - The two U-Nets are the most accurate. Over three seeds, the HLCC penalty has no effect beyond the run-to-run
   variability (`results/tables/data_regime_seeds.csv`).
-- P4 lowers the wedge MSE of every model, on 185 to 200 of the 200 test samples, with the same sign on every U-Net
-  seed: -10.6 % with 2000 training phantoms and -24.8 % with 200 (on the error averaged over the seeds).
+- P4 lowers the wedge MSE of every model and seed, on 184 to 200 of the 200 test samples. After `UNet2D`, the error
+  averaged over the seeds drops by 10.6 % with 2000 training phantoms and by 24.8 % with 200.
 - With 6 layers on the kNN graph, the graph models cannot reach the whole wedge and stay close to linear
   interpolation. On the full view graph, the same GCN lowers its wedge MSE by 79 %, to between the two seeds of
   `GCN_L18`. Neither the full graph nor 400 epochs closes the gap to the U-Net: the best graph model stays at about
@@ -151,8 +151,11 @@ done; wait
 # above), then the paired comparison; the seed replicas (seeds 1 and 2) add --seed <k> --run_name <run>_S<k>
 .venv/bin/torchrun --nproc_per_node=8 -m src.train --model UNet2D --run_name UNet2D_N200 --n_samples 200 --train_repeats 10
 .venv/bin/torchrun --nproc_per_node=8 -m src.train --model UNet2dHLCC --run_name UNet2dHLCC_N200 --n_samples 200 --train_repeats 10
-.venv/bin/python -m src.evaluate --models $(.venv/bin/python -m scripts.data_study_report --print_models)
+.venv/bin/python -m src.evaluate
 .venv/bin/python -m scripts.data_study_report
+
+# U-Net trained through the moment regression, saved as UNet2D_PL4 and evaluated as UNet2D_PL4_P4
+.venv/bin/torchrun --nproc_per_node=8 -m src.train --model UNet2D --projection_order 4
 
 # Checks and figures
 .venv/bin/python -m scripts.check_data_consistency   # acquired views of the outputs minus the measured ones: 0
