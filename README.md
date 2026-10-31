@@ -29,8 +29,8 @@ acquired window.
 
 ## Results
 
-Mean over the 200 test samples. The wedge is the set of missing views; the image PSNR is computed after filtered
-back-projection of the completed sinogram. ↓ lower is better, ↑ higher is better.
+Mean over the 200 test samples, seed 0. The wedge is the set of missing views; the image PSNR is computed after
+filtered back-projection of the completed sinogram. ↓ lower is better, ↑ higher is better.
 
 | Model | Wedge MSE ↓ | Wedge PSNR (dB) ↑ | Image PSNR (dB) ↑ | Wedge MSE with P4 ↓ |
 |---|---|---|---|---|
@@ -44,14 +44,24 @@ back-projection of the completed sinogram. ↓ lower is better, ↑ higher is be
 | `SNN_L12` | 2.61e-3 | 27.49 | 20.11 | 1.89e-3 (-27.5 %) |
 | `GCN_L18` | 2.40e-3 | 28.20 | 20.25 | 1.84e-3 (-23.4 %) |
 | `SNN_L18` | 1.93e-3 | 29.13 | 20.96 | 1.47e-3 (-23.7 %) |
+| `GCN_L6_Full`, full view graph | 1.94e-3 | 29.50 | 20.73 | 1.55e-3 (-20.2 %) |
+| `GCN_L18_E400`, 400 epochs | 1.62e-3 | 30.15 | 21.67 | 1.24e-3 (-23.6 %) |
+| Perfect completion (measured + true missing views) | | | 37.69 | |
 
-- The two U-Nets are the most accurate and almost identical: the HLCC penalty barely changes the test error.
-- With 6 layers the graph models cannot reach the whole wedge and stay close to linear interpolation in wedge MSE;
-  deeper graph models improve but remain behind the U-Net.
-- P4 lowers the wedge MSE of every model, on 185 to 200 of the 200 test samples.
+- The two U-Nets are the most accurate. Over three seeds, the HLCC penalty has no effect beyond the run-to-run
+  variability (`results/tables/data_regime_seeds.csv`).
+- P4 lowers the wedge MSE of every model, on 185 to 200 of the 200 test samples, with the same sign on every U-Net
+  seed: -10.6 % with 2000 training phantoms and -24.8 % with 200 (on the error averaged over the seeds).
+- With 6 layers on the kNN graph, the graph models cannot reach the whole wedge and stay close to linear
+  interpolation. On the full view graph, the same GCN lowers its wedge MSE by 79 %, to between the two seeds of
+  `GCN_L18`. Neither the full graph nor 400 epochs closes the gap to the U-Net: the best graph model stays at about
+  twice its wedge MSE.
+- The image stays far from its ceiling. Per test sample, the FBP of the `UNet2D` completion is a median 13.3 dB below
+  the FBP of a perfect completion (`results/tables/image_ceiling_gap.csv`).
 
-All tables (standard deviations, seed replicas, angular reach, data regimes, training cost) are in `results/tables/`
-and the figures in `results/figures/`.
+All tables (standard deviations, 95 % confidence intervals and Holm-adjusted p-values, seed replicas, angular reach,
+data regimes, training budget and locality, training cost) are in `results/tables/` and the figures in
+`results/figures/`.
 
 ## Repository
 
@@ -63,6 +73,7 @@ src/
   hlcc.py              Helgason-Ludwig conditions and the moment regression P_K
   losses.py            HLCC penalty and the annealed MSE + HLCC loss
   metrics.py           sinogram metrics, on the whole sinogram and on the missing wedge
+  statistics.py        paired bootstrap intervals, Wilcoxon test and Holm correction
   checkpoint.py        self-describing checkpoints
   paths.py             output folders
   plotting.py          shared plotting style and training figures
@@ -77,7 +88,8 @@ src/
     view_graph/        GCN and SNN: graph operators, layers, network
 scripts/               experiment launchers, reports and figures
 tests/                 unit and end-to-end tests
-results/               thesis tables (CSV + LaTeX), figures (PDF) and the analysis notebook
+results/               thesis tables (CSV + LaTeX), figures (PDF), the per-sample evaluation they are computed from
+                       (evaluation/) and the analysis notebook, versioned with its outputs
 ```
 
 Checkpoints, logs, Optuna studies and intermediate figures go to `outputs/` and `db/`, which are not versioned.
@@ -105,8 +117,9 @@ compiler.
 # The same effective batch on one GPU
 .venv/bin/python -m src.train --model UNet2D --grad_accum_steps 8
 
-# Evaluation on the test split, then results/model_analysis.ipynb for the tables and figures
+# Evaluation on the test split (results/evaluation/), then results/model_analysis.ipynb for the tables and figures
 .venv/bin/python -m src.evaluate
+.venv/bin/jupyter nbconvert --to notebook --execute --inplace results/model_analysis.ipynb
 ```
 
 Model names accept suffixes (`src/models/factory.py`): `GCN_L12` selects the depth, `UNet2D_N200` the run saved under
@@ -123,9 +136,19 @@ for gpu in 0 1 2 3 4 5 6 7; do
 done; wait
 .venv/bin/python -m scripts.launch_best_training GCN_L12_parallel_optimizer_only --run
 .venv/bin/python -m scripts.launch_best_training GCN_L12_parallel_optimizer_only --model SNN --run
+# Seed replica of the 18-layer pair, saved as GCN_L18_S1 and SNN_L18_S1
+.venv/bin/python -m scripts.launch_best_training GCN_L18_parallel_optimizer_only --seed 1 --run
+.venv/bin/python -m scripts.launch_best_training GCN_L18_parallel_optimizer_only --model SNN --seed 1 --run
+
+# Training budget (400-epoch cosine schedule) and locality (6 layers on the full view graph, Gaussian weights of 30
+# degrees: unbounded angular reach)
+.venv/bin/torchrun --nproc_per_node=8 -m src.train --model GCN --num_layers 18 --epochs 400 --lr 3.20e-4 \
+    --weight_decay 1.02e-4 --run_name GCN_L18_E400
+.venv/bin/torchrun --nproc_per_node=8 -m src.train --model GCN --num_layers 6 --graph_type full --sigma_deg 30 \
+    --lr 1.15e-3 --weight_decay 5.82e-4 --run_name GCN_L6_Full
 
 # U-Net vs U-Net + HLCC with 200 training phantoms, seen 10 times per epoch (same steps as the 2000-phantom runs
-# above), then the paired comparison; seed replicas add --seed 1 --run_name <run>_S1
+# above), then the paired comparison; the seed replicas (seeds 1 and 2) add --seed <k> --run_name <run>_S<k>
 .venv/bin/torchrun --nproc_per_node=8 -m src.train --model UNet2D --run_name UNet2D_N200 --n_samples 200 --train_repeats 10
 .venv/bin/torchrun --nproc_per_node=8 -m src.train --model UNet2dHLCC --run_name UNet2dHLCC_N200 --n_samples 200 --train_repeats 10
 .venv/bin/python -m src.evaluate --models $(.venv/bin/python -m scripts.data_study_report --print_models)
@@ -134,6 +157,7 @@ done; wait
 # Checks and figures
 .venv/bin/python -m scripts.check_data_consistency   # acquired views of the outputs minus the measured ones: 0
 .venv/bin/python -m scripts.hlcc_order_study         # why the moment regression stops at order 4
+.venv/bin/python -m scripts.plot_moment_curves       # moment curves 0-4: ground truth, regression, U-Net
 .venv/bin/python -m scripts.measure_peak_vram        # peak GPU memory of the runs that did not record it
 .venv/bin/python -m scripts.plot_architectures       # architecture figures (PlotNeuralNet + LaTeX)
 ```
@@ -143,7 +167,8 @@ done; wait
 - **Data.** Phantoms are generated on the fly from per-sample seeds: every machine gets the same training,
   validation and test sets, independently of the number of GPUs.
 - **Hardware.** Every model was trained on 8 Tesla K80 GPUs (12 GB) with a batch of 4 per GPU, i.e. an effective batch
-  of 32, for 200 epochs: from 51 min for a U-Net to 5 h 26 min for the 18-layer SNN, with at most 6.2 GiB per GPU.
+  of 32, for 200 epochs: from 51 min for a U-Net to 5 h 26 min for the 18-layer SNN (8 h 42 min for `GCN_L18_E400`
+  over 400 epochs), with at most 6.2 GiB per GPU.
 - **Fewer GPUs.** Keep the effective batch of 32 with `--grad_accum_steps 8/N` on N GPUs (`8` on one GPU); the memory
   stays the one of a batch of 4. No normalisation depends on the batch, so this optimises the same objective with the
   same number of steps and the same learning-rate schedule (`tests/test_training_pipeline.py`). The batch order
