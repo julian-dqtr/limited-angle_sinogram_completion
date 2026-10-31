@@ -47,7 +47,7 @@ class ViewTransport(nn.Module):
       aligning neighbouring views on the points of depth t_f before averaging them (see graph.build_shift_phases).
 
     Nothing is learned and every buffer is rebuilt from the configuration. Only A_hat mixes views, so the angular
-    reach is the one of the graph.
+    reach is that of the graph.
     """
 
     def __init__(self, angles_rad, transport: str, num_stalks: int, k: int = 12, sigma_deg: Optional[float] = 5.0,

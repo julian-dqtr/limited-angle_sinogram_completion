@@ -9,6 +9,11 @@ Outputs, in --out_dir:
     per_view_mse.csv               MSE of every view, per model
     per_view_var.csv               inter-sample variance of every view, per model and for the ground truth (the
                                    floor of a prediction that ignores the measurements)
+    ground_truth_metrics.csv       one row per sample: image metrics of the FBP of the ground truth (img_*) and of
+                                   a perfect completion (oracle_img_*: measured views + true missing views), and
+                                   the HLCC residuals of the ground truth (the discretisation floor)
+
+In model_comparison_metrics.csv, the row Sample = -1 holds the ground-truth img_* averaged over the samples.
 
 A model whose checkpoint is missing or does not match the geometry is reported as not evaluated.
 """
@@ -40,6 +45,11 @@ DEFAULT_MODELS = [
     "SNN_L6", "SNN_L12", "SNN_L18", "SNN_L6_P4", "SNN_L12_P4", "SNN_L18_P4",
     # seed-1 replicas of the L18 pair, to measure the run-to-run noise
     "GCN_L18_S1", "SNN_L18_S1", "GCN_L18_S1_P4", "SNN_L18_S1_P4",
+    # seeds 1 and 2 of the U-Net data study
+    *(f"{base}{tag}_S{seed}{p4}" for seed in (1, 2) for tag in ("", "_N200") for base in ("UNet2D", "UNet2dHLCC")
+      for p4 in ("", "_P4")),
+    # GCN_L18 with a 400-epoch schedule, and 6 layers on the full view graph (no reach limit)
+    "GCN_L18_E400", "GCN_L18_E400_P4", "GCN_L6_Full", "GCN_L6_Full_P4",
     # U-Net trained through the moment regression: its prediction is _PL4_P4, _PL4 is the raw network output
     "UNet2D_PL4", "UNet2D_PL4_P4",
 ]
@@ -65,7 +75,7 @@ def evaluate_models(models: dict, dataset, device, config: GeometryConfig):
     missing_views = ~geom.acquired_view_mask
     consistency = HelgasonLudwigLoss(geom, max_order=HLCC_METRIC_ORDER)
 
-    rows, hlcc_ground_truth = [], []
+    rows, ground_truth = [], []
     per_view_sq_err = {name: np.zeros(geom.num_views) for name in models}
     moments = {name: PerViewMoments() for name in [GROUND_TRUTH, *models]}
 
@@ -73,10 +83,11 @@ def evaluate_models(models: dict, dataset, device, config: GeometryConfig):
         incomplete, full, phantom = dataset[i]
         full_np, phantom_np = full[0].numpy(), phantom[0].numpy()
         moments[GROUND_TRUTH].update(full_np)
-        hlcc_ground_truth.append(hlcc_metrics(full_np, consistency))
-        if i == 0:  # Sample -1: FBP of the ground truth, the ceiling of the image metrics
-            rows.append({"Sample": -1, "Model": "GroundTruthSinogram (FBP reference)",
-                         **image_metrics(full_np, phantom_np, config)})
+        # Perfect completion under hard data consistency: the noisy measured views and the true missing views
+        oracle_np = np.where(geom.acquired_view_mask[:, None], incomplete[0].numpy(), full_np)
+        ground_truth.append({"Sample": i, **image_metrics(full_np, phantom_np, config),
+                             **{f"oracle_{k}": v for k, v in image_metrics(oracle_np, phantom_np, config).items()},
+                             **hlcc_metrics(full_np, consistency)})
 
         for name, model in models.items():
             pred = model(incomplete.unsqueeze(0).to(device))[0, 0].float().cpu().numpy()
@@ -96,9 +107,14 @@ def evaluate_models(models: dict, dataset, device, config: GeometryConfig):
         table.insert(1, "acquired", geom.acquired_view_mask)
         return table
 
+    # Sample -1: FBP of the ground truth, the ceiling of the image metrics, averaged like the models
+    ground_truth = pd.DataFrame(ground_truth)
+    rows.insert(0, {"Sample": -1, "Model": "GroundTruthSinogram (FBP reference, mean over the samples)",
+                    **ground_truth[["img_psnr", "img_ssim"]].mean().to_dict()})
+
     per_view = per_view_table({name: err / len(dataset) for name, err in per_view_sq_err.items()})
     per_view_var = per_view_table({name: m.per_view_variance() for name, m in moments.items()})
-    return pd.DataFrame(rows), per_view, per_view_var, pd.DataFrame(hlcc_ground_truth)
+    return pd.DataFrame(rows), per_view, per_view_var, ground_truth
 
 
 def main():
@@ -128,10 +144,11 @@ def main():
         print("No model could be loaded: train them first with src.train.")
         return
 
-    results, per_view, per_view_var, hlcc_ground_truth = evaluate_models(models, dataset, device, config)
+    results, per_view, per_view_var, ground_truth = evaluate_models(models, dataset, device, config)
     results.to_csv(args.out_dir / "model_comparison_metrics.csv", index=False)
     per_view.to_csv(args.out_dir / "per_view_mse.csv", index=False)
     per_view_var.to_csv(args.out_dir / "per_view_var.csv", index=False)
+    ground_truth.to_csv(args.out_dir / "ground_truth_metrics.csv", index=False)
 
     metric_cols = ["mse_wedge", "psnr_wedge", "ssim_wedge", "ssim", "img_psnr", "img_ssim"]
     samples = results[results["Sample"] >= 0]
@@ -145,11 +162,13 @@ def main():
     print(results[results["Sample"] < 0][["Model", "img_psnr", "img_ssim"]].to_string(index=False))
     print(summary.to_string())
 
-    hlcc_summary = samples.groupby("Model", sort=False)[list(hlcc_ground_truth.columns)].mean()
-    hlcc_summary.loc[GROUND_TRUTH] = hlcc_ground_truth.mean()
+    hlcc_columns = [col for col in ground_truth.columns if col.startswith("hlcc_residual_")]
+    hlcc_summary = samples.groupby("Model", sort=False)[hlcc_columns].mean()
+    hlcc_summary.loc[GROUND_TRUTH] = ground_truth[hlcc_columns].mean()
     print("\nHLCC residual per order, mean over the samples (0: consistent sinogram)")
     print(hlcc_summary.to_string(float_format=lambda value: f"{value:.2e}"))
-    print(f"\nSaved to {args.out_dir}/model_comparison_metrics.csv, per_view_mse.csv and per_view_var.csv")
+    print(f"\nSaved to {args.out_dir}/model_comparison_metrics.csv, per_view_mse.csv, per_view_var.csv and "
+          "ground_truth_metrics.csv")
 
 
 if __name__ == "__main__":

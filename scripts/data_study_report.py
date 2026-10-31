@@ -12,7 +12,7 @@ bootstrap interval over the samples (resampled in pairs) and a paired Wilcoxon p
 The interval does not include the run-to-run variability of a training: an effect of a few percent must keep its
 sign on the seed replicas to be trusted.
 
-Outputs: outputs/evaluation/data_study_summary.csv, outputs/figures/hlcc_data_study.{pdf,png} (change of the wedge
+Outputs: results/evaluation/data_study_summary.csv, outputs/figures/hlcc_data_study.{pdf,png} (change of the wedge
 MSE) and outputs/figures/hlcc_data_study_curves.{pdf,png} (validation curves from history.json).
 """
 import argparse
@@ -26,11 +26,11 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 from matplotlib.ticker import FuncFormatter, LogLocator, NullFormatter
-from scipy.stats import wilcoxon
 
 from src.models.factory import BASELINES, run_name_of
 from src.paths import CHECKPOINT_DIR, EVALUATION_DIR, FIGURES_DIR
 from src.plotting import AXIS, FAMILY_COLORS, GRID, INK, SECONDARY, signed, style_axis
+from src.statistics import paired_bootstrap
 
 UNET_COLOR = FAMILY_COLORS["U-Net"]  # the variants differ by position, line style and marker
 VARIANT_STYLES = [("-", "o"), ("--", "s"), (":", "^")]
@@ -56,22 +56,6 @@ def variants(size: int, n_high: int, seed: int) -> list:
     return trained + projected
 
 
-def paired_effect(candidate: np.ndarray, reference: np.ndarray, rng, relative: bool, n_boot: int = 10_000) -> dict:
-    """Effect on the mean of a metric, both models scored on the same samples, with a paired bootstrap 95 % interval.
-
-    relative=True: mean(candidate) / mean(reference) - 1, otherwise mean(candidate) - mean(reference).
-    """
-    def effect(c: np.ndarray, r: np.ndarray):
-        return c.mean(axis=-1) / r.mean(axis=-1) - 1.0 if relative else c.mean(axis=-1) - r.mean(axis=-1)
-
-    draws = rng.integers(0, len(reference), size=(n_boot, len(reference)))
-    low, high = np.percentile(effect(candidate[draws], reference[draws]), [2.5, 97.5])
-    differences = candidate - reference
-    p_value = float(wilcoxon(differences).pvalue) if np.any(differences != 0) else 1.0
-    return {"effect": float(effect(candidate, reference)), "ci_low": float(low), "ci_high": float(high),
-            "p_value": p_value}
-
-
 def compare_size(metrics: pd.DataFrame, size: int, n_high: int, seed: int, rng) -> pd.DataFrame:
     """One row per evaluated variant of a training-set size, the reference (plain U-Net) first."""
     per_sample = {col: metrics.pivot(index="Sample", columns="Model", values=col)
@@ -90,9 +74,9 @@ def compare_size(metrics: pd.DataFrame, size: int, n_high: int, seed: int, rng) 
         row.update({col: per_sample[col][name].mean() for col in per_sample})
         if name != reference:
             mse_name, mse_ref = per_sample["mse_wedge"][name], per_sample["mse_wedge"][reference]
-            mse = paired_effect(mse_name.to_numpy(), mse_ref.to_numpy(), rng, relative=True)
-            image = paired_effect(per_sample[IMAGE_METRIC][name].to_numpy(),
-                                  per_sample[IMAGE_METRIC][reference].to_numpy(), rng, relative=False)
+            mse = paired_bootstrap(mse_name.to_numpy(), mse_ref.to_numpy(), relative=True, rng=rng)
+            image = paired_bootstrap(per_sample[IMAGE_METRIC][name].to_numpy(),
+                                     per_sample[IMAGE_METRIC][reference].to_numpy(), relative=False, rng=rng)
             suffixes = (("", "effect"), ("_ci_low", "ci_low"), ("_ci_high", "ci_high"))
             row.update({f"mse_wedge_change_percent{k}": 100.0 * mse[v] for k, v in suffixes})
             row["mse_wedge_p_value"] = mse["p_value"]

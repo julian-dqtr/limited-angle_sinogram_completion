@@ -10,7 +10,7 @@ missing ones (src/hlcc.py). Per order, the three panels show:
   (c) the change of the wedge MSE when the orders 0..K of a model are replaced by the regression (the _P<K> models).
 
 Outputs: outputs/figures/hlcc_order_selection.{pdf,png}, outputs/figures/hlcc_moments_by_order.{pdf,png} (panel b)
-and outputs/evaluation/hlcc_order_study.csv.
+and results/evaluation/hlcc_order_study.csv.
 """
 import argparse
 from pathlib import Path

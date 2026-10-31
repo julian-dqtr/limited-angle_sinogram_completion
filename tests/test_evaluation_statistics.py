@@ -1,8 +1,9 @@
-"""Statistics behind the angular-reach and oversmoothing figures (no model, no GPU)."""
+"""Statistics behind the angular-reach and oversmoothing figures and the paired comparisons (no model, no GPU)."""
 import numpy as np
 import pytest
 
 from src.metrics import PerViewMoments, smoothness_metrics
+from src.statistics import holm, paired_bootstrap, paired_wilcoxon
 
 
 def accumulate(samples) -> PerViewMoments:
@@ -62,3 +63,35 @@ def test_smoothness_ignores_the_acquired_views():
     altered = pred.copy()
     altered[~MISSING] = 1e3 * rng.normal(size=((~MISSING).sum(), 16))
     assert smoothness_metrics(altered, target, MISSING) == pytest.approx(smoothness_metrics(pred, target, MISSING))
+
+
+def test_holm_matches_the_step_down_procedure():
+    p = np.array([0.01, 0.04, 0.03, 0.005])
+    # sorted 0.005, 0.01, 0.03, 0.04 -> x4, x3, x2, x1 = 0.02, 0.03, 0.06, 0.04 -> running max 0.02, 0.03, 0.06, 0.06
+    np.testing.assert_allclose(holm(p), [0.03, 0.06, 0.06, 0.02])
+
+
+def test_holm_keeps_nan_out_of_the_family_and_caps_at_one():
+    adjusted = holm([0.5, np.nan, 0.4])
+    assert np.isnan(adjusted[1])
+    np.testing.assert_allclose(adjusted[[0, 2]], [0.8, 0.8])
+    assert holm([0.9, 0.8])[0] == 1.0
+
+
+def test_paired_bootstrap_interval_contains_the_effect_and_is_reproducible():
+    rng = np.random.default_rng(6)
+    reference = rng.uniform(1.0, 2.0, size=200)
+    candidate = reference * (0.9 + 0.02 * rng.normal(size=200))
+    result = paired_bootstrap(candidate, reference)
+    assert result["ci_low"] < result["effect"] < result["ci_high"] < 0.0
+    assert result["effect"] == pytest.approx(candidate.mean() / reference.mean() - 1.0)
+    assert paired_bootstrap(candidate, reference) == result
+    absolute = paired_bootstrap(candidate, reference, relative=False)
+    assert absolute["effect"] == pytest.approx(candidate.mean() - reference.mean())
+
+
+def test_identical_models_have_no_effect_and_p_one():
+    values = np.random.default_rng(7).uniform(size=50)
+    result = paired_bootstrap(values, values)
+    assert result["effect"] == result["ci_low"] == result["ci_high"] == 0.0
+    assert result["p_value"] == paired_wilcoxon(np.zeros(50)) == 1.0
