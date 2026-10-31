@@ -1,0 +1,6 @@
+Question,Comparison,mse_wedge,Change [95 % CI],Better on,Wilcoxon p,p (Holm)
+budget,GCN_L18_E400 vs GCN_L18,2.40e-03 → 1.62e-03,"-32.4 % [-39.3, -25.7]",189 / 200,1.1e-29,4.5e-29
+budget,GCN_L18_E400 vs GCN_L18_S1,1.66e-03 → 1.62e-03,"-2.4 % [-9.6, +4.5]",130 / 200,0.00022,0.00022
+locality,GCN_L6_Full vs GCN_L6,9.13e-03 → 1.94e-03,"-78.7 % [-81.1, -76.1]",200 / 200,1.4e-34,7.2e-34
+locality,GCN_L6_Full vs GCN_L18,2.40e-03 → 1.94e-03,"-19.1 % [-28.1, -9.4]",165 / 200,1.1e-17,3.4e-17
+locality,GCN_L6_Full vs GCN_L18_S1,1.66e-03 → 1.94e-03,"+16.8 % [+3.1, +30.4]",80 / 200,5.7e-05,0.00011

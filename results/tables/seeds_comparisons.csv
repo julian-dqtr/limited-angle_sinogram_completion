@@ -1,6 +1,14 @@
-Comparison,mse_wedge,Change,Better on,Wilcoxon p
-GCN_L18: seed 1 vs seed 0 (same configuration),2.40e-03 → 1.66e-03,-30.7 %,176 / 200,3.9e-25
-SNN_L18: seed 1 vs seed 0 (same configuration),1.93e-03 → 1.79e-03,-6.9 %,114 / 200,0.005
-"SNN_L18 vs GCN_L18, seed 0",2.40e-03 → 1.93e-03,-19.7 %,166 / 200,1.1e-21
-"SNN_L18 vs GCN_L18, seed 1",1.66e-03 → 1.79e-03,+7.9 %,76 / 200,0.00061
-"SNN_L18 vs GCN_L18, mean over seeds [0, 1]",2.03e-03 → 1.86e-03,-8.4 %,122 / 200,7e-07
+Comparison,mse_wedge,Change [95 % CI],Better on,Wilcoxon p,p (Holm)
+UNet2dHLCC: seed 1 vs seed 0 (same configuration),8.17e-04 → 8.07e-04,"-1.2 % [-6.3, +3.4]",116 / 200,0.32,1
+UNet2dHLCC: seed 2 vs seed 0 (same configuration),8.17e-04 → 8.45e-04,"+3.3 % [-0.5, +7.4]",80 / 200,0.0084,0.05
+UNet2D: seed 1 vs seed 0 (same configuration),8.15e-04 → 8.64e-04,"+6.0 % [+0.1, +12.8]",98 / 200,0.28,1
+UNet2D: seed 2 vs seed 0 (same configuration),8.15e-04 → 8.88e-04,"+8.9 % [+2.9, +14.7]",104 / 200,0.12,0.61
+GCN_L18: seed 1 vs seed 0 (same configuration),2.40e-03 → 1.66e-03,"-30.7 % [-35.6, -25.7]",176 / 200,3.9e-25,5.1e-24
+SNN_L18: seed 1 vs seed 0 (same configuration),1.93e-03 → 1.79e-03,"-6.9 % [-13.8, +0.7]",114 / 200,0.005,0.035
+UNet2D_N200: seed 1 vs seed 0 (same configuration),2.75e-03 → 2.52e-03,"-8.2 % [-11.6, -4.9]",118 / 200,0.0001,0.001
+UNet2D_N200: seed 2 vs seed 0 (same configuration),2.75e-03 → 2.69e-03,"-2.3 % [-5.7, +1.1]",98 / 200,0.34,1
+UNet2dHLCC_N200: seed 1 vs seed 0 (same configuration),2.71e-03 → 2.54e-03,"-6.4 % [-10.6, -2.1]",118 / 200,0.0029,0.023
+UNet2dHLCC_N200: seed 2 vs seed 0 (same configuration),2.71e-03 → 2.65e-03,"-2.1 % [-5.9, +1.8]",95 / 200,0.67,1
+"SNN_L18 vs GCN_L18, seed 0",2.40e-03 → 1.93e-03,"-19.7 % [-24.1, -15.0]",166 / 200,1.1e-21,1.3e-20
+"SNN_L18 vs GCN_L18, seed 1",1.66e-03 → 1.79e-03,"+7.9 % [+1.1, +15.2]",76 / 200,0.00061,0.0055
+"SNN_L18 vs GCN_L18, mean over seeds [0, 1]",2.03e-03 → 1.86e-03,"-8.4 % [-12.9, -3.3]",122 / 200,7e-07,7.7e-06
