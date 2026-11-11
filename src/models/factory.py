@@ -7,7 +7,8 @@ Learned models, all called as ``completed = model(incomplete)``:
     "GCN"         view-graph GCN (identity transport)
     "SNN"         SinoSheavesNN (shift transport)
 
-Non-learned baselines: "ZeroFilling", "LinearInterp".
+Non-learned baselines: "ZeroFilling", "LinearInterp", "PeriodicInterp" (interpolation across the wedge
+through the half-turn symmetry of the sinogram).
 
 Suffixes, in this order, select a run or a variant without changing the architecture:
 
@@ -30,7 +31,7 @@ from src.paths import CHECKPOINT_DIR
 GRAPH_MODELS = ("GCN", "SNN")
 UNET_MODELS = ("UNet2D", "UNet2dHLCC")
 LEARNED_MODELS = UNET_MODELS + GRAPH_MODELS
-BASELINES = ("ZeroFilling", "LinearInterp")
+BASELINES = ("ZeroFilling", "LinearInterp", "PeriodicInterp")
 
 DEFAULT_MODEL_CONFIG: Dict[str, Dict[str, Any]] = {
     "UNet2D": {"filters": 32},
@@ -135,6 +136,9 @@ def get_model(model_name: str, device: torch.device, load_weights: bool = True,
     if base == "LinearInterp":
         from src.models.baselines import linear_interpolation
         return linear_interpolation, False
+    if base == "PeriodicInterp":
+        from src.models.baselines import periodic_interpolation
+        return periodic_interpolation, False
 
     if not load_weights:
         model, _ = build_model(model_name, geometry_config, **kwargs)

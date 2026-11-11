@@ -148,9 +148,18 @@ done; wait
     --lr 1.15e-3 --weight_decay 5.82e-4 --run_name GCN_L6_Full
 
 # U-Net vs U-Net + HLCC with 200 training phantoms, seen 10 times per epoch (same steps as the 2000-phantom runs
-# above), then the paired comparison; the seed replicas (seeds 1 and 2) add --seed <k> --run_name <run>_S<k>
+# above), then the paired comparison
 .venv/bin/torchrun --nproc_per_node=8 -m src.train --model UNet2D --run_name UNet2D_N200 --n_samples 200 --train_repeats 10
 .venv/bin/torchrun --nproc_per_node=8 -m src.train --model UNet2dHLCC --run_name UNet2dHLCC_N200 --n_samples 200 --train_repeats 10
+# Seed replicas (seeds 1 and 2) of the four U-Net runs, saved as <run>_S<k>
+for seed in 1 2; do
+    .venv/bin/torchrun --nproc_per_node=8 -m src.train --model UNet2D --seed $seed --run_name UNet2D_S$seed
+    .venv/bin/torchrun --nproc_per_node=8 -m src.train --model UNet2dHLCC --seed $seed --run_name UNet2dHLCC_S$seed
+    .venv/bin/torchrun --nproc_per_node=8 -m src.train --model UNet2D --seed $seed --run_name UNet2D_N200_S$seed \
+        --n_samples 200 --train_repeats 10
+    .venv/bin/torchrun --nproc_per_node=8 -m src.train --model UNet2dHLCC --seed $seed --run_name UNet2dHLCC_N200_S$seed \
+        --n_samples 200 --train_repeats 10
+done
 .venv/bin/python -m src.evaluate
 .venv/bin/python -m scripts.data_study_report
 

@@ -1,5 +1,6 @@
 Model,Parameters,Training phantoms,GPU,GPUs,VRAM / GPU (GiB),Peak VRAM / GPU (GiB),Epochs (best),Training time,Time / epoch (s),GPU-hours
 LinearInterp,0,—,—,—,—,—,—,—,—,—
+PeriodicInterp,0,—,—,—,—,—,—,—,—,—
 ZeroFilling,0,—,—,—,—,—,—,—,—,—
 UNet2D,"2,141,249",2000,Tesla K80,8,11.2,0.35,200 (103),0 h 51 min,15.6,6.9
 UNet2D_N200,"2,141,249",200 × 10,Tesla K80,8,11.2,0.35,200 (72),0 h 51 min,15.5,6.9

@@ -1,7 +1,7 @@
 """Evaluate the models on the test split.
 
     python -m src.evaluate
-    python -m src.evaluate --models ZeroFilling LinearInterp UNet2D GCN_L6 SNN_L6 --num_samples 200
+    python -m src.evaluate --models ZeroFilling LinearInterp PeriodicInterp UNet2D GCN_L6 SNN_L6 --num_samples 200
 
 Outputs, in --out_dir:
     model_comparison_metrics.csv   one row per (sample, model): sinogram and image metrics, the Dirichlet-energy
@@ -38,7 +38,7 @@ torch.backends.cudnn.enabled = False  # Tesla K80
 # The CSVs are read by results/model_analysis.ipynb and scripts/data_study_report.py: a run without --models
 # must keep every model. Those without a checkpoint are skipped.
 DEFAULT_MODELS = [
-    "ZeroFilling", "LinearInterp",
+    "ZeroFilling", "LinearInterp", "PeriodicInterp", "PeriodicInterp_P4",
     "UNet2D", "UNet2dHLCC", "UNet2D_P4", "UNet2dHLCC_P4",
     "UNet2D_N200", "UNet2dHLCC_N200", "UNet2D_N200_P4", "UNet2dHLCC_N200_P4",
     "GCN_L6", "GCN_L12", "GCN_L18", "GCN_L6_P4", "GCN_L12_P4", "GCN_L18_P4",

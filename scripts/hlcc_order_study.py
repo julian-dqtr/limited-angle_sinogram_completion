@@ -106,7 +106,7 @@ def save(fig, path: Path, suffixes=("pdf", "png")) -> None:
 def main():
     parser = argparse.ArgumentParser(description="Empirical choice of the highest order of the HLCC moment regression")
     parser.add_argument("--models", nargs="+", default=["UNet2D", "UNet2dHLCC"])
-    parser.add_argument("--num_samples", type=int, default=100, help="Size of the test split")
+    parser.add_argument("--num_samples", type=int, default=200, help="Size of the test split")
     parser.add_argument("--max_order", type=int, default=7)
     parser.add_argument("--noise_level", type=float, default=1e5)
     parser.add_argument("--figures_dir", type=Path, default=FIGURES_DIR)
