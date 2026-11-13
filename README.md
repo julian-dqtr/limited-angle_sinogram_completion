@@ -1,14 +1,15 @@
 # Limited-angle sinogram completion
 
-Code of my Master's thesis. A parallel-beam sinogram has 180 views over [-90, 90) degrees, but only the window
-[-25, 25] is measured. The models complete the 129 missing views, and a training-free post-processing based on the
-Helgason-Ludwig consistency conditions (HLCC) corrects the low-order moments of their output.
+Code of my Master's thesis (KTH Royal Institute of Technology and CentraleSupélec, 2026). A parallel-beam sinogram
+has 180 views over [-90, 90) degrees, but only the window [-25, 25] is measured. The models complete the 129 missing
+views, and a training-free post-processing based on the Helgason-Ludwig consistency conditions (HLCC) corrects the
+low-order moments of their output.
 
 <p align="center">
-  <img src="assets/unet_hlcc_p4.png" alt="U-Net with hard data consistency, followed by the HLCC moment regression P4" width="640">
+  <img src="assets/arch_unet_hlcc_p4_ushape.png" alt="UNet2dHLCC_P4: U-Net trained with the HLCC penalty, followed by the HLCC moment regression P4" width="640">
 </p>
-<p align="center"><em>UNet2dHLCC_P4: the U-Net trained with the HLCC penalty, followed by the HLCC moment regression of
-orders 0 to 4 on the missing views.</em></p>
+<p align="center"><em>UNet2dHLCC_P4: the U-Net trained with the HLCC penalty, followed at inference by the HLCC
+moment regression of orders 0 to 4 on the missing views.</em></p>
 
 ## Models
 
@@ -20,12 +21,28 @@ orders 0 to 4 on the missing views.</em></p>
 | `SNN` | SinoSheavesNN: the same graph and parameters, with fixed restriction maps that shift each stalk along the detector by t_f (theta_i - theta_j) | MSE |
 | `<model>_P4` | any model followed by the HLCC moment regression (Huang et al., 2017) | no training |
 
+Non-learned baselines: zero filling, linear interpolation in angle, and periodic interpolation, which interpolates
+across the wedge with p(theta + 180°, s) = p(theta, -s).
+
 The U-Net follows Ronneberger et al. (2015) and the GCN Kipf & Welling (2017). The view graph, one node per
 projection angle, is inspired by GLM (Valat & Öktem, 2025), and the SNN builds on sheaf neural networks (Hansen &
 Ghrist, 2019; Hansen & Gebhart, 2020; Bodnar et al., 2022). Every learned model applies hard data consistency: the
 measured views come out unchanged. The graph models are compared at 6, 12 and 18 layers; their angular reach is
 `num_layers * k/2` views, i.e. 36, 72 and 108 degrees, while the farthest missing view is 65 degrees away from the
 acquired window.
+
+<details>
+<summary>Architecture figures: residual U-Net and view-graph networks</summary>
+<p align="center">
+  <img src="assets/arch_unet_ushape.png" alt="Residual U-Net with hard data consistency" width="640">
+</p>
+<p align="center"><em>UNet2D: residual U-Net with three levels, a bottleneck and hard data consistency (DC).</em></p>
+<p align="center">
+  <img src="assets/arch_viewgraph.png" alt="View-graph networks GCN and SNN" width="640">
+</p>
+<p align="center"><em>GCN and SNN: encoder, L residual blocks and decoder along the detector; each block aggregates the
+six neighbouring views on each side, with the identity transport (GCN) or the shift transport (SNN).</em></p>
+</details>
 
 ## Results
 
@@ -36,6 +53,7 @@ filtered back-projection of the completed sinogram. ↓ lower is better, ↑ hig
 |---|---|---|---|---|
 | Zero filling | 2.71e-2 | 17.67 | 16.03 | |
 | Linear interpolation | 8.24e-3 | 22.66 | 15.95 | |
+| Periodic interpolation | 6.56e-3 | 23.62 | 16.65 | 4.28e-3 (-34.8 %) |
 | `UNet2D` | 8.15e-4 | 33.43 | 23.35 | 7.26e-4 (-11.0 %) |
 | `UNet2dHLCC` | 8.17e-4 | 33.73 | 23.43 | 7.36e-4 (-9.9 %) |
 | `GCN_L6` | 9.13e-3 | 21.57 | 18.49 | 2.64e-3 (-71.0 %) |
@@ -48,7 +66,8 @@ filtered back-projection of the completed sinogram. ↓ lower is better, ↑ hig
 | `GCN_L18_E400`, 400 epochs | 1.62e-3 | 30.15 | 21.67 | 1.24e-3 (-23.6 %) |
 | Perfect completion (measured + true missing views) | | | 37.69 | |
 
-- The two U-Nets are the most accurate. Over three seeds, the HLCC penalty has no effect beyond the run-to-run
+- The two U-Nets are the most accurate: their wedge MSE is about 8 times lower than that of periodic interpolation,
+  the best non-learned baseline. Over three seeds, the HLCC penalty has no effect beyond the run-to-run
   variability (`results/tables/data_regime_seeds.csv`).
 - P4 lowers the wedge MSE of every model and seed, on 184 to 200 of the 200 test samples. After `UNet2D`, the error
   averaged over the seeds drops by 10.6 % with 2000 training phantoms and by 24.8 % with 200.
@@ -82,14 +101,15 @@ src/
   optuna_search.py     hyperparameter search
   models/
     factory.py         build, name and reload every model
-    baselines.py       zero filling, linear interpolation
+    baselines.py       zero filling, linear and periodic interpolation
     data_consistency.py
     unet.py
     view_graph/        GCN and SNN: graph operators, layers, network
 scripts/               experiment launchers, reports and figures
 tests/                 unit and end-to-end tests
-results/               thesis tables (CSV + LaTeX), figures (PDF), the per-sample evaluation they are computed from
-                       (evaluation/) and the analysis notebook, versioned with its outputs
+results/               thesis tables (CSV + LaTeX), figures (PDF and PNG), the per-sample evaluation they are computed
+                       from (evaluation/) and the analysis notebook, versioned with its outputs
+assets/                figures shown in this README
 ```
 
 Checkpoints, logs, Optuna studies and intermediate figures go to `outputs/` and `db/`, which are not versioned.
@@ -172,6 +192,8 @@ done
 .venv/bin/python -m scripts.plot_moment_curves       # moment curves 0-4: ground truth, regression, U-Net
 .venv/bin/python -m scripts.measure_peak_vram        # peak GPU memory of the runs that did not record it
 .venv/bin/python -m scripts.plot_architectures       # architecture figures (PlotNeuralNet + LaTeX)
+.venv/bin/python scripts/plot_thesis_reach.py . results/figures      # angular reach figures, from the CSV
+.venv/bin/python scripts/plot_thesis_overview.py . results/figures   # metrics overview and depth trend, from the CSV
 ```
 
 ## Reproducibility
