@@ -1,10 +1,13 @@
 
-\documentclass[border=8pt, multi, tikz]{standalone} 
+\documentclass[border=2pt, multi, tikz]{standalone} 
 \usepackage{import}
 \subimport{../../../tools/PlotNeuralNet/layers/}{init}
 \usetikzlibrary{positioning}
 \usetikzlibrary{3d} %for including external image 
 
+\DeclareMathSizes{8}{8}{7}{7}
+\DeclareMathSizes{9}{9}{7}{7}
+\newcommand{\LabelFont}{\footnotesize}
 \usetikzlibrary{calc,decorations.pathreplacing,fit}
 \def\IOColor{rgb:white,4;black,1}
 \def\ConvColor{rgb:yellow,5;red,2.5;white,5}
@@ -26,8 +29,17 @@
 \tikzstyle{connection}=[ultra thick,every node/.style={sloped,allow upside down},draw=\edgecolor,opacity=0.7]
 \tikzstyle{copyconnection}=[ultra thick,every node/.style={sloped,allow upside down},draw={rgb:blue,4;red,1;green,1;black,3},opacity=0.7]
 
-\tikzstyle{bus}=[ultra thick,-Stealth,draw={rgb:blue,4;red,1;green,1;black,3},opacity=0.7,rounded corners=4pt]
-\tikzstyle{op}=[draw=black!60,fill=\HLCCColor,rounded corners=3pt,align=flush center,font=\small,inner sep=4pt]
+\tikzstyle{connection}=[very thick,every node/.style={sloped,allow upside down},draw=\edgecolor,opacity=0.7]
+\tikzstyle{copyconnection}=[very thick,every node/.style={sloped,allow upside down},
+    draw={rgb:blue,4;red,1;green,1;black,3},opacity=0.7]
+\renewcommand{\midarrow}{\tikz \draw[-{Stealth[length=5pt,width=4.5pt]},line width=1.2pt,draw=\edgecolor]
+    (-1mm,0) -- (0,0);}
+\renewcommand{\copymidarrow}{\tikz \draw[-{Stealth[length=5pt,width=4.5pt]},line width=1.2pt,
+    draw={rgb:blue,4;red,1;green,1;black,3}] (-1mm,0) -- (0,0);}
+\tikzstyle{bus}=[very thick,-Stealth,draw={rgb:blue,4;red,1;green,1;black,3},opacity=0.7,rounded corners=3pt]
+\tikzstyle{op}=[draw=black!60,fill=\HLCCColor,rounded corners=3pt,align=flush center,font=\footnotesize,
+    inner sep=3pt]
+\begin{scope}[x=0.25cm,y=0.25cm,z={(-0.0963cm,-0.0963cm)},every edge quotes/.append style={font=\LabelFont,overlay}]
 
 \pic[shift={(0,0,0)}] at (0,0,0)
     {Box={name=in,
@@ -45,23 +57,27 @@
         {\includegraphics[width=5.560cm,height=8.000cm]{sinograms/incomplete.png}};
 \end{scope}
 
-\node[below=12pt,align=center,font=\small] at (in-nearsoutheast) {\textbf{Incomplete $y$}\\$180\times128$};
+\node[below=21pt,align=center,font=\footnotesize,inner sep=0pt] (in-io) at (in-nearsoutheast -| in-anchor)
+    {\textbf{Incomplete $y$}\\$180\times128$};
 
-\pic[shift={(2.2,0,0)}] at (in-east)
+\pic[shift={(2.0,0,0)}] at (in-east)
     {RightBandedBox={name=enc0,
         caption={},
         xlabel={{"32","32",}},
-        zlabel={$184\times128$},
+        zlabel={},
         fill=\ConvColor,
         bandfill=\ActColor,
         opacity=0.4,
         height=40.0,
-        width={3.75,3.75},
+        width={7.4,7.4},
         depth=27.8}};
+
+\node[below=11pt,align=center,font=\LabelFont,inner sep=0pt] (enc0-note)
+    at ($(enc0-nearsouthwest)!0.5!(enc0-nearsoutheast)$) {$184\times128$};
 
 \draw [connection]  (in-east)    -- node {\midarrow} (enc0-west);
 
-\pic[shift={(3.0,-9.5,0)}] at (enc0-east)
+\pic[shift={(1.0,-10.4,0)}] at (enc0-east)
     {Box={name=pool1,
         caption={},
         xlabel={{"",}},
@@ -76,19 +92,22 @@
     {RightBandedBox={name=enc1,
         caption={},
         xlabel={{"64","64",}},
-        zlabel={$92\times64$},
+        zlabel={},
         fill=\ConvColor,
         bandfill=\ActColor,
         opacity=0.4,
         height=30.0,
-        width={4.5,4.5},
+        width={8.8,8.8},
         depth=20.9}};
+
+\node[below=11pt,align=center,font=\LabelFont,inner sep=0pt] (enc1-note)
+    at ($(enc1-nearsouthwest)!0.5!(enc1-nearsoutheast)$) {$92\times64$};
 
 \path (enc0-east) -- (pool1-west |- enc0-east) coordinate[pos=0.5] (enc0-down);
 \draw[connection] (enc0-east) -- (enc0-down) -- node {\midarrow} (enc0-down |- pool1-west)
     -- (pool1-west);
 
-\pic[shift={(3.0,-8.0,0)}] at (enc1-east)
+\pic[shift={(1.0,-9.0,0)}] at (enc1-east)
     {Box={name=pool2,
         caption={},
         xlabel={{"",}},
@@ -103,19 +122,22 @@
     {RightBandedBox={name=enc2,
         caption={},
         xlabel={{"128","128",}},
-        zlabel={$46\times32$},
+        zlabel={},
         fill=\ConvColor,
         bandfill=\ActColor,
         opacity=0.4,
         height=22.5,
-        width={5.25,5.25},
+        width={10.2,10.2},
         depth=15.7}};
+
+\node[below=11pt,align=center,font=\LabelFont,inner sep=0pt] (enc2-note)
+    at ($(enc2-nearsouthwest)!0.5!(enc2-nearsoutheast)$) {$46\times32$};
 
 \path (enc1-east) -- (pool2-west |- enc1-east) coordinate[pos=0.5] (enc1-down);
 \draw[connection] (enc1-east) -- (enc1-down) -- node {\midarrow} (enc1-down |- pool2-west)
     -- (pool2-west);
 
-\pic[shift={(3.0,-6.5,0)}] at (enc2-east)
+\pic[shift={(1.0,-7.6,0)}] at (enc2-east)
     {Box={name=pool3,
         caption={},
         xlabel={{"",}},
@@ -128,21 +150,24 @@
 
 \pic[shift={(0,0,0)}] at (pool3-east)
     {RightBandedBox={name=enc3,
-        caption={Bottleneck},
+        caption={},
         xlabel={{"256","256",}},
-        zlabel={$23\times16$},
+        zlabel={},
         fill=\ConvColor,
         bandfill=\ActColor,
         opacity=0.4,
         height=16.9,
-        width={6.0,6.0},
+        width={11.6,11.6},
         depth=11.8}};
+
+\node[below=11pt,align=center,font=\LabelFont,inner sep=0pt] (enc3-note)
+    at ($(enc3-nearsouthwest)!0.5!(enc3-nearsoutheast)$) {$23\times16$\\[1pt]\textbf{Bottleneck}};
 
 \path (enc2-east) -- (pool3-west |- enc2-east) coordinate[pos=0.5] (enc2-down);
 \draw[connection] (enc2-east) -- (enc2-down) -- node {\midarrow} (enc2-down |- pool3-west)
     -- (pool3-west);
 
-\pic[shift={(3.0,6.5,0)}] at (enc3-east)
+\pic[shift={(0.6,7.6,0)}] at (enc3-east)
     {Box={name=copy2,
         caption={},
         xlabel={{"128",}},
@@ -150,7 +175,7 @@
         fill=\CopyColor,
         opacity=0.25,
         height=22.5,
-        width=5.25,
+        width=10.2,
         depth=15.7}};
 
 \pic[shift={(0,0,0)}] at (copy2-east)
@@ -161,7 +186,7 @@
         fill=\UpColor,
         opacity=0.5,
         height=22.5,
-        width=5.25,
+        width=10.2,
         depth=15.7}};
 
 \pic[shift={(0,0,0)}] at (up2-east)
@@ -173,7 +198,7 @@
         bandfill=\ActColor,
         opacity=0.4,
         height=22.5,
-        width={5.25,5.25},
+        width={10.2,10.2},
         depth=15.7}};
 
 \coordinate (up2-bottom) at ($(up2-nearsouthwest)!0.5!(up2-nearsoutheast)$);
@@ -181,7 +206,7 @@
 
 \draw[copyconnection] (enc2-east) -- node {\copymidarrow} (copy2-west);
 
-\pic[shift={(3.0,8.0,0)}] at (dec2-east)
+\pic[shift={(0.6,9.0,0)}] at (dec2-east)
     {Box={name=copy1,
         caption={},
         xlabel={{"64",}},
@@ -189,7 +214,7 @@
         fill=\CopyColor,
         opacity=0.25,
         height=30.0,
-        width=4.5,
+        width=8.8,
         depth=20.9}};
 
 \pic[shift={(0,0,0)}] at (copy1-east)
@@ -200,7 +225,7 @@
         fill=\UpColor,
         opacity=0.5,
         height=30.0,
-        width=4.5,
+        width=8.8,
         depth=20.9}};
 
 \pic[shift={(0,0,0)}] at (up1-east)
@@ -212,7 +237,7 @@
         bandfill=\ActColor,
         opacity=0.4,
         height=30.0,
-        width={4.5,4.5},
+        width={8.8,8.8},
         depth=20.9}};
 
 \coordinate (up1-bottom) at ($(up1-nearsouthwest)!0.5!(up1-nearsoutheast)$);
@@ -220,7 +245,7 @@
 
 \draw[copyconnection] (enc1-east) -- node {\copymidarrow} (copy1-west);
 
-\pic[shift={(3.0,9.5,0)}] at (dec1-east)
+\pic[shift={(0.6,10.4,0)}] at (dec1-east)
     {Box={name=copy0,
         caption={},
         xlabel={{"32",}},
@@ -228,7 +253,7 @@
         fill=\CopyColor,
         opacity=0.25,
         height=40.0,
-        width=3.75,
+        width=7.4,
         depth=27.8}};
 
 \pic[shift={(0,0,0)}] at (copy0-east)
@@ -239,7 +264,7 @@
         fill=\UpColor,
         opacity=0.5,
         height=40.0,
-        width=3.75,
+        width=7.4,
         depth=27.8}};
 
 \pic[shift={(0,0,0)}] at (up0-east)
@@ -251,7 +276,7 @@
         bandfill=\ActColor,
         opacity=0.4,
         height=40.0,
-        width={3.75,3.75},
+        width={7.4,7.4},
         depth=27.8}};
 
 \coordinate (up0-bottom) at ($(up0-nearsouthwest)!0.5!(up0-nearsoutheast)$);
@@ -259,7 +284,7 @@
 
 \draw[copyconnection] (enc0-east) -- node {\copymidarrow} (copy0-west);
 
-\pic[shift={(1.2,0,0)}] at (dec0-east)
+\pic[shift={(1.12,0,0)}] at (dec0-east)
     {Box={name=head,
         caption={},
         xlabel={{"1",}},
@@ -267,26 +292,26 @@
         fill=\OutColor,
         opacity=0.6,
         height=40.0,
-        width=0.8,
+        width=2.9999999999999996,
         depth=27.8}};
 
-\pic[shift={(1.6,0,0)}] at (head-east)
+\pic[shift={(2.08,0,0)}] at (head-east)
     {Ball={name=sum,
         fill=\SumColor,
         opacity=0.6,
-        radius=2.5,
-        logo={$+$},
+        radius=4.8,
+        logo={\scalebox{0.2604}{\large$+$}},
         caption={}}};
 
-\pic[shift={(1.6,0,0)}] at (sum-east)
+\pic[shift={(2.08,0,0)}] at (sum-east)
     {Ball={name=dc,
         fill=\DCColor,
         opacity=0.6,
-        radius=2.5,
-        logo={\scriptsize\textsf{DC}},
+        radius=4.8,
+        logo={\scalebox{0.2604}{\footnotesize\textsf{DC}}},
         caption={}}};
 
-\pic[shift={(1.6,0,0)}] at (dc-east)
+\pic[shift={(1.12,0,0)}] at (dc-east)
     {Box={name=out,
         caption={},
         xlabel={{"",}},
@@ -302,7 +327,8 @@
         {\includegraphics[width=5.560cm,height=8.000cm]{sinograms/unet2d.png}};
 \end{scope}
 
-\node[below=12pt,align=center,font=\small] at (out-nearsoutheast) {\textbf{Completed $\hat y$}\\$180\times128$};
+\node[below=4pt,align=center,font=\footnotesize,inner sep=0pt] (out-io) at (out-nearsoutheast -| out-anchor)
+    {\textbf{Completed $\hat y$}\\$180\times128$};
 
 \draw [connection]  (dec0-east)    -- node {\midarrow} (head-west);
 
@@ -312,29 +338,30 @@
 
 \draw [connection]  (dc-east)    -- node {\midarrow} (out-west);
 
-\draw[bus] ($(in-east)+(0.9,0)$) -- ++(0,7.5) coordinate (bus) -- (bus -| sum-north)
+\draw[bus] ($(in-east)!0.25!(enc0-west)$) -- ++(0,7.0) coordinate (bus) -- (bus -| sum-north)
     node[pos=0.5,above,font=\small,opacity=1] {measured sinogram $y$: residual learning and data consistency}
     -- (sum-north);
 \draw[bus] (bus -| sum-north) -- (bus -| dc-north) -- (dc-north);
 
-\begin{scope}[shift={($(in-west |- enc3-south)+(0,-3.5)$)}]
-\filldraw[fill=\ConvColor,fill opacity=0.7,draw=black!60] (0.0,0.0) rectangle ++(0.45,0.4);
-\filldraw[fill=\ActColor,fill opacity=0.7,draw=black!60] (0.45,0.0) rectangle ++(0.15,0.4);
-\node[anchor=west,font=\small] at (0.7,0.2) {conv $3\times3$ + InstanceNorm + LeakyReLU};
-\filldraw[fill=\PoolColor,fill opacity=0.7,draw=black!60] (7.2,0.0) rectangle ++(0.6,0.4);
-\node[anchor=west,font=\small] at (7.9,0.2) {max pooling $2\times2$};
-\filldraw[fill=\UpColor,fill opacity=0.7,draw=black!60] (14.4,0.0) rectangle ++(0.6,0.4);
-\node[anchor=west,font=\small] at (15.1,0.2) {bilinear $\times2$ + conv $3\times3$};
-\filldraw[fill=\CopyColor,fill opacity=0.7,draw=black!60] (21.6,0.0) rectangle ++(0.6,0.4);
-\node[anchor=west,font=\small] at (22.3,0.2) {skip connection (concatenation)};
-\filldraw[fill=\OutColor,fill opacity=0.7,draw=black!60] (0.0,-0.8) rectangle ++(0.6,0.4);
-\node[anchor=west,font=\small] at (0.7,-0.6000000000000001) {conv $1\times1$};
-\shade[ball color=\SumColor] (7.5,-0.6000000000000001) circle (0.22);
-\node[anchor=west,font=\small] at (7.9,-0.6000000000000001) {residual: $y + f_\theta(y)$};
-\shade[ball color=\DCColor] (14.700000000000001,-0.6000000000000001) circle (0.22);
-\node[anchor=west,font=\small] at (15.1,-0.6000000000000001) {data consistency (measured views kept)};
-\draw[bus] (21.6,-0.6000000000000001) -- ++(0.6,0);
-\node[anchor=west,font=\small] at (22.3,-0.6000000000000001) {copy of the input};
+\begin{scope}[shift={($(in-io.west |- enc3-note.south)+(0,-0.4cm)$)}]
+\filldraw[fill=\ConvColor,fill opacity=0.7,draw=black!60] (0.0cm,-0.3cm) rectangle ++(0.37cm,0.3cm);
+\filldraw[fill=\ActColor,fill opacity=0.7,draw=black!60] (0.37cm,-0.3cm) rectangle ++(0.13cm,0.3cm);
+\node[anchor=west,font=\small] at (0.6cm,-0.15cm) {conv $3\times3$ + InstanceNorm + LeakyReLU};
+\filldraw[fill=\PoolColor,fill opacity=0.7,draw=black!60] (7.4cm,-0.3cm) rectangle ++(0.5cm,0.3cm);
+\node[anchor=west,font=\small] at (8.0cm,-0.15cm) {max pooling $2\times2$};
+\filldraw[fill=\UpColor,fill opacity=0.7,draw=black!60] (0.0cm,-0.8cm) rectangle ++(0.5cm,0.3cm);
+\node[anchor=west,font=\small] at (0.6cm,-0.65cm) {bilinear $\times2$ + conv $3\times3$};
+\filldraw[fill=\CopyColor,fill opacity=0.7,draw=black!60] (7.4cm,-0.8cm) rectangle ++(0.5cm,0.3cm);
+\node[anchor=west,font=\small] at (8.0cm,-0.65cm) {skip connection (concatenation)};
+\filldraw[fill=\OutColor,fill opacity=0.7,draw=black!60] (0.0cm,-1.3cm) rectangle ++(0.5cm,0.3cm);
+\node[anchor=west,font=\small] at (0.6cm,-1.1500000000000001cm) {conv $1\times1$};
+\shade[ball color=\SumColor] (7.65cm,-1.1500000000000001cm) circle (0.17cm);
+\node[anchor=west,font=\small] at (8.0cm,-1.1500000000000001cm) {residual: $y + f_\theta(y)$};
+\shade[ball color=\DCColor] (0.25cm,-1.6500000000000001cm) circle (0.17cm);
+\node[anchor=west,font=\small] at (0.6cm,-1.6500000000000001cm) {data consistency (measured views kept)};
+\draw[bus] (7.4cm,-1.6500000000000001cm) -- ++(0.5cm,0);
+\node[anchor=west,font=\small] at (8.0cm,-1.6500000000000001cm) {copy of the input};
+\end{scope}
 \end{scope}
 
 \end{tikzpicture}

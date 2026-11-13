@@ -19,6 +19,11 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
+
+# Thesis size: drawn at the text width (6.06 in), so that the text is printed at 6.5-8 pt.
+plt.rcParams.update({"font.family": ["Arial", "Liberation Sans", "DejaVu Sans"], "font.size": 8,
+                     "axes.labelsize": 7.5, "axes.titlesize": 8, "xtick.labelsize": 6.5,
+                     "ytick.labelsize": 6.5, "legend.fontsize": 7, "pdf.fonttype": 42})
 import pandas as pd
 import torch
 
@@ -35,7 +40,7 @@ torch.backends.cudnn.enabled = False  # Tesla K80
 
 REGRESSION_COLOR = "#4a3aa7"  # violet, as the _P4 curves of results/model_analysis.ipynb
 REGRESSION = "HLCC regression from the measured views"
-ANGLE_TICKS = [-90, -25, 0, 25, 90]
+ANGLE_TICKS = [-90, -25, 25, 90]
 
 
 def per_view_error(moments: torch.Tensor, reference: torch.Tensor) -> np.ndarray:
@@ -48,6 +53,8 @@ def angle_axis(ax, window_edges) -> None:
     ax.axvspan(*window_edges, color=BAND, zorder=0)
     ax.grid(color=GRID, linewidth=0.8)
     style_axis(ax)
+    ax.tick_params(labelsize=6.5, length=2, pad=1.5)
+    ax.yaxis.get_offset_text().set_fontsize(6.5)
     ax.set_xticks(ANGLE_TICKS)
     ax.set_xlim(-90, 90)
 
@@ -114,34 +121,34 @@ def main():
 
     true_error = {REGRESSION: per_view_error(regressed[:, 0], true_moments[:, 0]),
                   **{name: per_view_error(m[:, 0], true_moments[:, 0]) for name, m in model_moments.items()}}
-    fig, axes = plt.subplots(2, len(orders), figsize=(3.3 * len(orders), 6.0), sharex=True, squeeze=False,
+    fig, axes = plt.subplots(2, len(orders), figsize=(5.58, 3.2), sharex=True, squeeze=False,
                              layout="constrained")
     for n in orders:
         ax_curve, ax_error = axes[0, n], axes[1, n]
         angle_axis(ax_curve, window_edges)
-        ax_curve.plot(angles_deg, true_moments[sample, 0, :, n].numpy(), color=INK, linewidth=2.2, label="ground truth")
+        ax_curve.plot(angles_deg, true_moments[sample, 0, :, n].numpy(), color=INK, linewidth=1.4, label="ground truth")
         for name, moments in model_moments.items():
-            ax_curve.plot(angles_deg, moments[sample, 0, :, n].numpy(), linewidth=1.6, label=name,
+            ax_curve.plot(angles_deg, moments[sample, 0, :, n].numpy(), linewidth=1.0, label=name,
                           color=styles[name]["color"], linestyle=styles[name]["linestyle"])
-        ax_curve.plot(angles_deg, regressed[sample, 0, :, n].numpy(), color=REGRESSION_COLOR, linewidth=1.8,
+        ax_curve.plot(angles_deg, regressed[sample, 0, :, n].numpy(), color=REGRESSION_COLOR, linewidth=1.1,
                       linestyle="--", label=REGRESSION)
-        ax_curve.set_title(f"order {n}", fontsize=10.5, color=INK)
+        ax_curve.set_title(f"order {n}", fontsize=8, color=INK)
 
         angle_axis(ax_error, window_edges)
         for name, error in true_error.items():
             style = ({"color": REGRESSION_COLOR, "linestyle": "--"} if name == REGRESSION else
                      {"color": styles[name]["color"], "linestyle": styles[name]["linestyle"]})
-            ax_error.plot(angles_deg, error[:, n], linewidth=1.6, **style)
+            ax_error.plot(angles_deg, error[:, n], linewidth=1.0, **style)
         ax_error.set_yscale("log")
-        ax_error.set_xlabel("angle θ (deg)", fontsize=9, color=SECONDARY)
-    axes[0, 0].set_ylabel(f"$a_n(\\theta)$, test sample {sample}", fontsize=9, color=SECONDARY)
-    axes[1, 0].set_ylabel(f"relative RMS error over\nthe {len(dataset)} test samples", fontsize=9, color=SECONDARY)
+        ax_error.set_xlabel("angle θ (deg)", fontsize=7.5, color=SECONDARY)
+    axes[0, 0].set_ylabel(f"$a_n(\\theta)$, sample {sample}", fontsize=7.5, color=SECONDARY)
+    axes[1, 0].set_ylabel("relative RMS error", fontsize=7.5, color=SECONDARY)
     handles, labels = axes[0, 0].get_legend_handles_labels()
     handles.append(plt.Rectangle((0, 0), 1, 1, color=BAND))
     labels.append(f"measured views (±{config.angle_max_deg:g}°)")
-    fig.legend(handles, labels, loc="outside lower center", ncol=len(labels), frameon=False, fontsize=9)
-    fig.suptitle("Moment curves of orders 0 to 4: extended from the measured window vs predicted by the network",
-                 fontsize=12, color=INK)
+    labels = [{REGRESSION: "regression from the measured views"}.get(label, label) for label in labels]
+    fig.legend(handles, labels, loc="outside lower center", ncol=len(labels), frameon=False, fontsize=7,
+               columnspacing=1.0, handlelength=1.8)
     args.out_figure.parent.mkdir(parents=True, exist_ok=True)
     save(fig, args.out_figure, suffixes=("pdf",))
     print(f"\nSaved {args.out_figure} and {args.out_csv}")
